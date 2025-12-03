@@ -1,0 +1,114 @@
+# ================================
+# FRONTEND (Next.js/TypeScript/Bun)
+# ================================
+
+# dependencies
+frontend/node_modules/
+frontend/.pnp
+frontend/.pnp.*
+frontend/.yarn/*
+!frontend/.yarn/patches
+!frontend/.yarn/plugins
+!frontend/.yarn/releases
+!frontend/.yarn/versions
+frontend/bun.lockb
+
+# testing
+frontend/coverage/
+frontend/.nyc_output/
+frontend/test.ts
+
+# next.js
+frontend/.next/
+frontend/out/
+frontend/dist/
+
+# production
+frontend/build/
+
+# misc
+.DS_Store
+*.pem
+
+# debug
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+bun-debug.log*
+.pnpm-debug.log*
+
+# env files
+.env
+.env*.local
+.env.development
+.env.production
+.env.test
+
+# vercel
+.vercel
+
+# typescript
+*.tsbuildinfo
+frontend/next-env.d.ts
+
+# IDE
+# .vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# ================================
+# BACKEND (Go)
+# ================================
+
+# Binaries for programs and plugins
+backend/*.exe
+backend/*.exe~
+backend/*.dll
+backend/*.so
+backend/*.dylib
+backend/main
+backend/server
+backend/cmd/server/server
+backend/cmd/server/main
+
+# Test binary, built with `go test -c`
+backend/*.test
+backend/test.go
+
+# Output of the go coverage tool
+backend/*.out
+backend/coverage.txt
+backend/coverage.html
+
+# Go workspace file
+backend/go.work
+backend/go.work.sum
+
+# Dependency directories
+backend/vendor/
+
+# Go build cache
+backend/.cache/
+
+# Air (live reload) temporary files
+backend/tmp/
+backend/.air.toml
+
+# ================================
+# GENERAL
+# ================================
+
+# OS files
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Log files
+*.log
+
+# Temporary files
+*.tmp
+*.temp
+.cache/

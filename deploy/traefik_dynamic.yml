@@ -1,0 +1,15 @@
+http:
+  middlewares:
+    secure-headers:
+      headers:
+        stsSeconds: 31536000
+        stsIncludeSubdomains: true
+        stsPreload: true
+        frameDeny: true
+        contentTypeNosniff: true
+        browserXssFilter: true
+        referrerPolicy: "no-referrer-when-downgrade"
+        customFrameOptionsValue: "SAMEORIGIN"
+        customRequestHeaders:
+          X-Forwarded-Proto: "https"
+        forceSTSHeader: true
