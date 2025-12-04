@@ -1,0 +1,95 @@
+name: Build and Push Docker Images
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up QEMU (multi-arch)
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract version from tag
+        id: vars
+        run: echo "VERSION=${GITHUB_REF_NAME}" >> $GITHUB_OUTPUT
+
+      - name: Compute backend image name
+        id: backendimagename
+        shell: bash
+        run: |
+          owner_lc="${GITHUB_REPOSITORY_OWNER,,}"
+          echo "name=ghcr.io/${owner_lc}/warpdrop-backend" >> "$GITHUB_OUTPUT"
+
+      - name: Build and push backend image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./backend
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            ${{ steps.backendimagename.outputs.name }}:${{ steps.vars.outputs.VERSION }}
+            ${{ steps.backendimagename.outputs.name }}:latest
+          labels: |
+            org.opencontainers.image.source=${{ github.repository }}
+            org.opencontainers.image.version=${{ steps.vars.outputs.VERSION }}
+            org.opencontainers.image.created=${{ github.event.head_commit.timestamp }}
+            org.opencontainers.image.revision=${{ github.sha }}
+
+      - name: Compute frontend image name
+        id: frontendimagename
+        shell: bash
+        run: |
+          owner_lc="${GITHUB_REPOSITORY_OWNER,,}"
+          echo "name=ghcr.io/${owner_lc}/warpdrop-frontend" >> "$GITHUB_OUTPUT"
+
+      - name: Build and push frontend image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./frontend
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            ${{ steps.frontendimagename.outputs.name }}:${{ steps.vars.outputs.VERSION }}
+            ${{ steps.frontendimagename.outputs.name }}:latest
+          labels: |
+            org.opencontainers.image.source=${{ github.repository }}
+            org.opencontainers.image.version=${{ steps.vars.outputs.VERSION }}
+            org.opencontainers.image.created=${{ github.event.head_commit.timestamp }}
+            org.opencontainers.image.revision=${{ github.sha }}
+
+      - name: Publish Backend summary
+        run: |
+          echo "Published: ${{ steps.backendimagename.outputs.name }}:${{ steps.vars.outputs.VERSION }}"
+          echo "Also tagged: ${{ steps.backendimagename.outputs.name }}:latest"
+          echo "Pull with: docker pull ${{ steps.backendimagename.outputs.name }}:${{ steps.vars.outputs.VERSION }}"
+
+      - name: Publish Frontend summary
+        run: |
+          echo "Published: ${{ steps.frontendimagename.outputs.name }}:${{ steps.vars.outputs.VERSION }}"
+          echo "Also tagged: ${{ steps.frontendimagename.outputs.name }}:latest"
+          echo "Pull with: docker pull ${{ steps.frontendimagename.outputs.name }}:${{ steps.vars.outputs.VERSION }}"

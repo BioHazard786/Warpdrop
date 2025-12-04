@@ -26,8 +26,8 @@ export function useWebRTC({
 	shouldConnect?: boolean;
 	roomId?: string;
 }) {
-	const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
 	const isSender = use(IsSenderContext);
+	const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
 	const { resetWebRTC } = useRTCActions();
 	const senderActions = useSenderActions();
 	const receiverActions = useReceiverActions();

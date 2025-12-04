@@ -1,0 +1,73 @@
+version: "3.9"
+
+services:
+  backend:
+    image: ghcr.io/biohazard786/warpdrop-backend:latest
+    environment:
+      - PORT=8080
+    expose:
+      - "8080"
+    restart: unless-stopped
+    networks:
+      - web
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.backend.rule=Host(`${DOMAIN}`) && PathPrefix(`/ws`)"
+      - "traefik.http.routers.backend.entryPoints=websecure"
+      - "traefik.http.routers.backend.tls.certresolver=le"
+      - "traefik.http.services.backend.loadbalancer.server.port=8080"
+
+  frontend:
+    image: ghcr.io/biohazard786/warpdrop-frontend:latest
+    environment:
+      - NODE_ENV=production
+    expose:
+      - "3000"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+    restart: unless-stopped
+    networks:
+      - web
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.frontend.rule=Host(`${DOMAIN}`)"
+      - "traefik.http.routers.frontend.entryPoints=websecure"
+      - "traefik.http.routers.frontend.tls.certresolver=le"
+      - "traefik.http.services.frontend.loadbalancer.server.port=3000"
+      - "traefik.http.routers.frontend.middlewares=secure-headers@file"
+
+  traefik:
+    image: traefik:v3.6
+    command:
+      - "--api.dashboard=true"
+      - "--providers.docker=true"
+      - "--providers.docker.exposedbydefault=false"
+      - "--entryPoints.web.address=:80"
+      - "--entryPoints.websecure.address=:443"
+      - "--providers.file.directory=/etc/traefik/dynamic"
+      - "--entryPoints.web.http.redirections.entryPoint.to=websecure"
+      - "--entryPoints.web.http.redirections.entryPoint.scheme=https"
+      - "--certificatesResolvers.le.acme.httpChallenge.entryPoint=web"
+      - "--certificatesResolvers.le.acme.email=${ACME_EMAIL}"
+      - "--certificatesResolvers.le.acme.storage=/letsencrypt/acme.json"
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - traefik_letsencrypt:/letsencrypt
+      - ./deploy/traefik_dynamic.yml:/etc/traefik/dynamic/traefik_dynamic.yml:ro
+    restart: unless-stopped
+    networks:
+      - web
+
+networks:
+  web:
+    external: false
+
+volumes:
+  traefik_letsencrypt:
+    external: false
