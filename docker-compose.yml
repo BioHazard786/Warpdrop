@@ -1,5 +1,3 @@
-version: "3.9"
-
 services:
   backend:
     build:
@@ -75,18 +73,3 @@ networks:
 volumes:
   traefik_letsencrypt:
     external: false
-# Labels are applied via an override file or directly here once DOMAIN is known.
-# Example labels (to be added when domain provided):
-#  frontend:
-#    labels:
-#      - "traefik.enable=true"
-#      - "traefik.http.routers.frontend.rule=Host(`${DOMAIN}`)"
-#      - "traefik.http.routers.frontend.entryPoints=websecure"
-#      - "traefik.http.routers.frontend.tls.certresolver=le"
-#  backend:
-#    labels:
-#      - "traefik.enable=true"
-#      - "traefik.http.routers.backend.rule=Host(`${DOMAIN}`) && PathPrefix(`/ws`)"
-#      - "traefik.http.services.backend.loadbalancer.server.port=8080"
-#      - "traefik.http.routers.backend.entryPoints=websecure"
-#      - "traefik.http.routers.backend.tls.certresolver=le"

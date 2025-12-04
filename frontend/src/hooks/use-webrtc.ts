@@ -9,7 +9,10 @@ import { useRTCActions } from "@/store/use-rtc-store";
 import { SenderStatus, useSenderActions } from "@/store/use-sender-store";
 
 const WS_URL =
-	process.env.NEXT_PUBLIC_WS_URL ?? `ws://${window.location.host}/ws`;
+	typeof window !== "undefined"
+		? (process.env.NEXT_PUBLIC_WS_URL ??
+			`${window.location.protocol === "https:" ? "wss" : "ws"}://${window.location.host}/ws`)
+		: null;
 
 // useWebRTC: sets up WebSocket signaling + WebRTC peer connection lifecycle.
 // Responsibilities:

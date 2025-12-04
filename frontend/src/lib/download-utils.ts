@@ -43,13 +43,15 @@ export function streamDownloadMultipleFiles(
 	});
 
 	const readableZipStream = createZipStream({
-		start(ctrl) {
+		// biome-ignore lint/suspicious/noExplicitAny: zip-stream uses custom controller type
+		start(ctrl: any) {
 			for (const file of files) {
-				ctrl.enqueue(file as unknown as ArrayBufferView);
+				ctrl.enqueue(file);
 			}
 			ctrl.close();
 		},
-		async pull(_ctrl) {
+		// biome-ignore lint/suspicious/noExplicitAny: zip-stream uses custom controller type
+		async pull(_ctrl: any) {
 			// Gets executed everytime zip-stream asks for more data
 		},
 	});
