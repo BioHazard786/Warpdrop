@@ -26,6 +26,8 @@ COPY --from=builder /app/public ./public
 COPY --from=builder /app/.next/standalone ./
 COPY --from=builder /app/.next/static ./.next/static
 
+RUN apk add --no-cache curl
+
 EXPOSE 3000
 
 ENTRYPOINT ["bun", "server.js"]
