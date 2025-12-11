@@ -63,6 +63,17 @@ services:
 
   coturn:
     image: coturn/coturn:latest
+    entrypoint: /bin/sh
+    command:
+      - -c
+      - |
+        echo "Waiting for TLS certificates..."
+        while [ ! -f /etc/coturn/certs/warpdrop.qzz.io/certificate.crt ] || [ ! -f /etc/coturn/certs/warpdrop.qzz.io/privatekey.key ]; do
+          echo "Certificates not ready, waiting..."
+          sleep 5
+        done
+        echo "Certificates found, starting coturn..."
+        exec turnserver -c /etc/coturn/turnserver.conf
     ports:
       - "3478:3478/tcp"
       - "3478:3478/udp"
