@@ -92,12 +92,12 @@ services:
       while ! [ -e /data/acme.json ] || ! [ -s /data/acme.json ]; do
       sleep 5;
       done;
-      traefik-certs-dumper file --version v2 --source /data/acme.json --dest /certs --domain-subdir=true --watch'
+      traefik-certs-dumper file --version v2 --source /data/acme.json --dest /certs --domain-subdir=true --crt-name=certificate --key-name=privatekey --watch'
     volumes:
       - traefik_letsencrypt:/data:ro
       - coturn_certs:/certs
     healthcheck:
-      test: ["CMD", "test", "-f", "/certs/warpdrop.qzz.io/certificate.crt"]
+      test: ["CMD", "test", "-f", "/certs/warpdrop.qzz.io/privatekey.key"]
       interval: 5s
       timeout: 5s
       retries: 60
