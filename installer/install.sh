@@ -228,7 +228,7 @@ download_file() {
   filename="${3}"
 
   if command -v curl >/dev/null 2>&1; then
-    curl -fsSL "${url}" -o "${dir}/${filename}"
+    curl -sSL "${url}" -o "${dir}/${filename}"
     rcode="${?}"
   elif command -v wget >/dev/null 2>&1; then
     wget --quiet  "${url}" -O "${dir}/${filename}"
@@ -260,31 +260,61 @@ checksum_check() {
   local shasum_1
   local shasum_2
   local shasum_c
+  local filename_to_find
+  local grep_result
 
   checksum_file="${1}"
   file="${2}"
   dir="${3}"
+  filename_to_find="$(basename "${file}")"
+
+  print_message "== [DEBUG] Checksum verification starting..." "info"
+  print_message "== [DEBUG] Checksum file: ${checksum_file}" "info"
+  print_message "== [DEBUG] File to check: ${file}" "info"
+  print_message "== [DEBUG] Filename to find: ${filename_to_find}" "info"
+  print_message "== [DEBUG] Working directory: ${dir}" "info"
 
   cd "${dir}" || return 30
+  
+  print_message "== [DEBUG] Contents of checksum file:" "info"
+  cat "${checksum_file}" | head -5
+  
   if command -v sha256sum >/dev/null 2>&1; then
+    print_message "== [DEBUG] Using sha256sum tool" "info"
     ## Not all sha256sum versions seem to have --ignore-missing, so filter the checksum file
     ## to only include the file we downloaded.
-    grep "$(basename "${file}")" "${checksum_file}" > filtered_checksum.txt
-    shasum_c="$(sha256sum -c "filtered_checksum.txt")"
+    grep_result="$(grep "${filename_to_find}" "${checksum_file}" || true)"
+    print_message "== [DEBUG] Grep result: ${grep_result}" "info"
+    echo "${grep_result}" > filtered_checksum.txt
+    print_message "== [DEBUG] Contents of filtered_checksum.txt:" "info"
+    cat filtered_checksum.txt
+    shasum_c="$(sha256sum -c "filtered_checksum.txt" 2>&1)"
     rcode="${?}"
+    print_message "== [DEBUG] sha256sum output: ${shasum_c}" "info"
   elif command -v shasum >/dev/null 2>&1; then
+    print_message "== [DEBUG] Using shasum tool" "info"
     ## With shasum on FreeBSD, we don't get to --ignore-missing, so filter the checksum file
     ## to only include the file we downloaded.
-    grep "$(basename "${file}")" "${checksum_file}" > filtered_checksum.txt
-    shasum_c="$(shasum -a 256 -c "filtered_checksum.txt")"
+    grep_result="$(grep "${filename_to_find}" "${checksum_file}" || true)"
+    print_message "== [DEBUG] Grep result: ${grep_result}" "info"
+    echo "${grep_result}" > filtered_checksum.txt
+    print_message "== [DEBUG] Contents of filtered_checksum.txt:" "info"
+    cat filtered_checksum.txt
+    shasum_c="$(shasum -a 256 -c "filtered_checksum.txt" 2>&1)"
     rcode="${?}"
+    print_message "== [DEBUG] shasum output: ${shasum_c}" "info"
   elif command -v sha256 >/dev/null 2>&1; then
+    print_message "== [DEBUG] Using sha256 tool" "info"
     ## With sha256 on FreeBSD, we don't get to --ignore-missing, so filter the checksum file
     ## to only include the file we downloaded.
     ## Also sha256 -c option seems to fail, so fall back to an if statement
-    grep "$(basename "${file}")" "${checksum_file}" > filtered_checksum.txt
+    grep_result="$(grep "${filename_to_find}" "${checksum_file}" || true)"
+    print_message "== [DEBUG] Grep result: ${grep_result}" "info"
+    echo "${grep_result}" > filtered_checksum.txt
     shasum_1="$(sha256 -q "${file}")"
     shasum_2="$(awk '{print $1}' filtered_checksum.txt)"
+    print_message "== [DEBUG] Computed hash: ${shasum_1}" "info"
+    print_message "== [DEBUG] Expected hash: ${shasum_2}" "info"
     if [[ "${shasum_1}" == "${shasum_2}" ]]; then
       rcode="0"
     else
@@ -639,9 +669,12 @@ main() {
   esac
 
   warpdrop_file="${warpdrop_bin_name}_v${warpdrop_version}_${warpdrop_os}-${warpdrop_arch}.${warpdrop_dl_ext}"
-  warpdrop_checksum_file="${warpdrop_bin_name}_v${warpdrop_version}_checksums.txt"
+  warpdrop_checksum_file="${warpdrop_bin_name}_${warpdrop_version}_checksums.txt"
   warpdrop_url="${warpdrop_base_url}/v${warpdrop_version}/${warpdrop_file}"
   warpdrop_checksum_url="${warpdrop_base_url}/v${warpdrop_version}/${warpdrop_checksum_file}"
+  
+  print_message "== Constructed URL: ${warpdrop_url}" "info"
+  print_message "== Looking for file: ${warpdrop_file}" "info"
   
   download_file "${warpdrop_url}" "${tmpdir}" "${warpdrop_file}"
   download_file_rcode="${?}"
