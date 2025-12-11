@@ -9,7 +9,7 @@ import (
 const (
 	DefaultDomain   = "warpdrop.qzz.io"
 	DefaultSTUN     = "stun:stun.l.google.com:19302"
-	DefaultTURN     = "turn:warpdrop.qzz.io" // Optional, empty by default
+	DefaultTURN     = "warpdrop.qzz.io" // TURN server hostname
 	DefaultTURNUser = "warpdrop"
 	DefaultTURNPass = "warpdrop-secret"
 )
@@ -116,8 +116,8 @@ func (c *Config) GetTURNServers() []string {
 		return nil
 	}
 	return []string{
-		fmt.Sprintf("%s:3478?transport=udp", c.TURNServer),
-		fmt.Sprintf("%s:3478?transport=tcp", c.TURNServer),
+		fmt.Sprintf("turn:%s:3478?transport=udp", c.TURNServer),
+		fmt.Sprintf("turn:%s:3478?transport=tcp", c.TURNServer),
 		fmt.Sprintf("turns:%s:5349?transport=tcp", c.TURNServer),
 	}
 }

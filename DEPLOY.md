@@ -29,7 +29,7 @@ Key values:
 DOMAIN=yourdomain.com
 ACME_EMAIL=you@example.com
 NEXT_PUBLIC_STUN_SERVER=stun:stun.l.google.com:19302
-NEXT_PUBLIC_TURN_SERVER=turn:yourdomain.com
+NEXT_PUBLIC_TURN_SERVER=your-turn-server.com
 NEXT_PUBLIC_TURN_USERNAME=warpdrop
 NEXT_PUBLIC_TURN_PASSWORD=warpdrop-secret
 ```

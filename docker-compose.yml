@@ -44,7 +44,7 @@ services:
     environment:
       - NODE_ENV=production
       - NEXT_PUBLIC_STUN_SERVER=${NEXT_PUBLIC_STUN_SERVER:-stun:stun.l.google.com:19302}
-      - NEXT_PUBLIC_TURN_SERVER=${NEXT_PUBLIC_TURN_SERVER:-turn:${DOMAIN}}
+      - NEXT_PUBLIC_TURN_SERVER=${NEXT_PUBLIC_TURN_SERVER:-${DOMAIN}}
       - NEXT_PUBLIC_TURN_USERNAME=${NEXT_PUBLIC_TURN_USERNAME:-warpdrop}
       - NEXT_PUBLIC_TURN_PASSWORD=${NEXT_PUBLIC_TURN_PASSWORD:-warpdrop-secret}
     expose:

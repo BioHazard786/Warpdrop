@@ -16,8 +16,8 @@ function getIceServers(): RTCIceServer[] {
 
 		servers.push({
 			urls: [
-				`${turnServer}:3478?transport=udp`,
-				`${turnServer}:3478?transport=tcp`,
+				`turn:${turnServer}:3478?transport=udp`,
+				`turn:${turnServer}:3478?transport=tcp`,
 				`turns:${turnServer}:5349?transport=tcp`,
 			],
 			username: turnUsername,

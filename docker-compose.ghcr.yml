@@ -2,7 +2,7 @@ version: "3.9"
 
 services:
   installer:
-    image: ghcr.io/biohazard786/warpdrop-installer:latest
+    image: ghcr.io/biohazard786/warpdrop-cli-installer:latest
     expose:
       - "8000"
     restart: unless-stopped
@@ -14,8 +14,8 @@ services:
       - "traefik.http.routers.installer.entryPoints=websecure"
       - "traefik.http.routers.installer.tls.certresolver=le"
       - "traefik.http.services.installer.loadbalancer.server.port=8000"
-      - "traefik.http.services.backend.loadbalancer.healthcheck.path=/health"
-      - "traefik.http.services.backend.loadbalancer.healthcheck.interval=5s"
+      - "traefik.http.services.installer.loadbalancer.healthcheck.path=/health"
+      - "traefik.http.services.installer.loadbalancer.healthcheck.interval=5s"
 
   backend:
     image: ghcr.io/biohazard786/warpdrop-backend:latest
