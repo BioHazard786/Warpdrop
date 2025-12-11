@@ -67,24 +67,6 @@ services:
 
   coturn:
     image: coturn/coturn:latest
-    entrypoint: ["/bin/sh", "-c"]
-    command:
-      - |
-        echo "Verifying TLS certificates are readable..."
-        max_attempts=60
-        attempt=0
-        while [ $$attempt -lt $$max_attempts ]; do
-          if [ -r /etc/coturn/certs/warpdrop.qzz.io/certificate.crt ] && [ -r /etc/coturn/certs/warpdrop.qzz.io/privatekey.key ]; then
-            echo "Certificates verified and readable!"
-            sleep 2
-            exec turnserver -c /etc/coturn/turnserver.conf
-          fi
-          echo "Waiting for certificates... (attempt $$attempt/$$max_attempts)"
-          attempt=$$((attempt + 1))
-          sleep 1
-        done
-        echo "ERROR: Certificates not found after $$max_attempts attempts"
-        exit 1
     ports:
       - "3478:3478/tcp"
       - "3478:3478/udp"
@@ -101,28 +83,22 @@ services:
       - DETECT_RELAY_IP=yes
     depends_on:
       traefik-certs-dumper:
-        condition: service_healthy
+        condition: service_completed_successfully
 
   traefik-certs-dumper:
     image: ldez/traefik-certs-dumper:latest
     entrypoint: sh -c '
-      apk add jq;
-      while ! [ -e /data/acme.json ] || ! [ -s /data/acme.json ]; do
-      sleep 5;
-      done;
-      traefik-certs-dumper file --version v2 --source /data/acme.json --dest /certs --domain-subdir=true --crt-name=certificate --key-name=privatekey --watch'
+      apk add jq
+      && while ! [ -e /data/acme.json ] || ! [ -s /data/acme.json ]; do
+      sleep 1
+      done
+      && traefik-certs-dumper file --version v2 --watch --source /data/acme.json --dest /app/certs --domain-subdir=true --crt-name=certificate --key-name=privatekey'
     volumes:
       - traefik_letsencrypt:/data:ro
-      - coturn_certs:/certs
-    healthcheck:
-      test: ["CMD", "test", "-f", "/certs/warpdrop.qzz.io/privatekey.key"]
-      interval: 5s
-      timeout: 5s
-      retries: 60
-      start_period: 10s
-    restart: unless-stopped
+      - coturn_certs:/app/certs:rw
     networks:
       - web
+    restart: unless-stopped
 
   traefik:
     image: traefik:v3.6
