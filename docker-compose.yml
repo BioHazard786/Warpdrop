@@ -67,6 +67,24 @@ services:
 
   coturn:
     image: coturn/coturn:latest
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        echo "Verifying TLS certificates are readable..."
+        max_attempts=60
+        attempt=0
+        while [ $$attempt -lt $$max_attempts ]; do
+          if [ -r /etc/coturn/certs/warpdrop.qzz.io/certificate.crt ] && [ -r /etc/coturn/certs/warpdrop.qzz.io/privatekey.key ]; then
+            echo "Certificates verified and readable!"
+            sleep 2
+            exec turnserver -c /etc/coturn/turnserver.conf
+          fi
+          echo "Waiting for certificates... (attempt $$attempt/$$max_attempts)"
+          attempt=$$((attempt + 1))
+          sleep 1
+        done
+        echo "ERROR: Certificates not found after $$max_attempts attempts"
+        exit 1
     ports:
       - "3478:3478/tcp"
       - "3478:3478/udp"
