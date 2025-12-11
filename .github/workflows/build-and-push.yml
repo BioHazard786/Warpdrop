@@ -60,6 +60,28 @@ jobs:
             org.opencontainers.image.created=${{ github.event.head_commit.timestamp }}
             org.opencontainers.image.revision=${{ github.sha }}
 
+      - name: Compute installer image name
+        id: installerimagename
+        shell: bash
+        run: |
+          owner_lc="${GITHUB_REPOSITORY_OWNER,,}"
+          echo "name=ghcr.io/${owner_lc}/warpdrop-cli-installer" >> "$GITHUB_OUTPUT"
+
+      - name: Build and push installer image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./installer
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            ${{ steps.installerimagename.outputs.name }}:${{ steps.vars.outputs.VERSION }}
+            ${{ steps.installerimagename.outputs.name }}:latest
+          labels: |
+            org.opencontainers.image.source=${{ github.repository }}
+            org.opencontainers.image.version=${{ steps.vars.outputs.VERSION }}
+            org.opencontainers.image.created=${{ github.event.head_commit.timestamp }}
+            org.opencontainers.image.revision=${{ github.sha }}
+
       - name: Compute frontend image name
         id: frontendimagename
         shell: bash
