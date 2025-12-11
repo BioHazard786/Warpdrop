@@ -26,9 +26,18 @@ builds:
   - env:
       - CGO_ENABLED=0
     goos:
+      - darwin
       - linux
       - windows
-      - darwin
+      - freebsd
+      - netbsd
+      - openbsd
+      - dragonfly
+    goarch:
+      - amd64
+      - "386"
+      - arm
+      - arm64
     ldflags:
       - -s -w -X github.com/BioHazard786/Warpdrop/cli/internal/version.Version={{ .Version }}
     main: .
@@ -43,6 +52,10 @@ archives:
       {{- if eq .Os "darwin" }}macOS
       {{- else if eq .Os "linux" }}Linux
       {{- else if eq .Os "windows" }}Windows
+      {{- else if eq .Os "freebsd" }}FreeBSD
+      {{- else if eq .Os "netbsd" }}NetBSD
+      {{- else if eq .Os "openbsd" }}OpenBSD
+      {{- else if eq .Os "dragonfly" }}DragonFly
       {{- else }}{{ .Os }}{{ end }}-
       {{- if eq .Arch "amd64" }}64bit
       {{- else if eq .Arch "386" }}32bit
