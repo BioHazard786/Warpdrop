@@ -83,16 +83,31 @@ services:
       - DETECT_RELAY_IP=yes
     depends_on:
       traefik-certs-dumper:
-        condition: service_completed_successfully
+        condition: service_started
 
   traefik-certs-dumper:
     image: ldez/traefik-certs-dumper:latest
-    entrypoint: sh -c '
-      apk add jq
-      && while ! [ -e /data/acme.json ] || ! [ -s /data/acme.json ]; do
-      sleep 1
-      done
-      && traefik-certs-dumper file --version v2 --watch --source /data/acme.json --dest /app/certs --domain-subdir=true --crt-name=certificate --key-name=privatekey'
+    entrypoint:
+      - /bin/sh
+      - -c
+      # The pipe (|) tells YAML to preserve the newlines in the script below
+      - |
+        apk add jq
+
+        # Wait until acme.json exists and is not empty
+        while [ ! -f /data/acme.json ] || [ ! -s /data/acme.json ]; do
+          sleep 1
+        done
+
+        # Start the dumper
+        traefik-certs-dumper file \
+          --version v2 \
+          --watch \
+          --source /data/acme.json \
+          --dest /app/certs \
+          --domain-subdir=true \
+          --crt-name=certificate \
+          --key-name=privatekey
     volumes:
       - traefik_letsencrypt:/data:ro
       - coturn_certs:/app/certs:rw
