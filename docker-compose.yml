@@ -77,7 +77,7 @@ services:
           sleep 5
         done
         echo "Certificates found, starting coturn..."
-        exec turnserver -c /etc/coturn/turnserver.conf
+        exec /usr/bin/turnserver -c /etc/coturn/turnserver.conf -n
     ports:
       - "3478:3478/tcp"
       - "3478:3478/udp"
