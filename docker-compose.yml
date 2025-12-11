@@ -79,8 +79,27 @@ services:
     networks:
       - web
     environment:
+      - DOMAIN=${DOMAIN}
       - DETECT_EXTERNAL_IP=yes
       - DETECT_RELAY_IP=yes
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        echo "Waiting for certificates for $${DOMAIN}..."
+
+        # Loop 2 seconds until both files exist
+        while [ ! -f /etc/coturn/certs/$${DOMAIN}/certificate.crt ] || [ ! -f /etc/coturn/certs/$${DOMAIN}/privatekey.key ]; do
+          sleep 2
+        done
+
+        echo "Certificates found! Fixing permissions..."
+        # Coturn requires the private key to be readable only by the owner (600)
+        chmod 600 /etc/coturn/certs/$${DOMAIN}/privatekey.key
+
+        echo "Starting Coturn..."
+        # Hand over control to the official startup script
+        exec docker-entrypoint.sh "$@"
     depends_on:
       traefik-certs-dumper:
         condition: service_started
