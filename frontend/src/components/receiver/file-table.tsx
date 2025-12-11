@@ -57,19 +57,19 @@ const FileTable = () => {
 				<TableBody className="text-[13px]">
 					{files.map((file, index) => (
 						<TableRow key={`file-row-${index}`}>
-							<TableCell className="max-w-48 py-2 font-medium">
+							<TableCell className="max-w-48 py-0 font-medium">
 								<span className="flex items-center gap-2">
 									<span className="shrink-0">{getFileIcon(file)}</span>{" "}
 									<span className="truncate">{file.name}</span>
 								</span>
 							</TableCell>
-							<TableCell className="py-2 text-muted-foreground">
+							<TableCell className="py-0 text-muted-foreground">
 								{file.type.split("/")[1]?.toUpperCase() || "UNKNOWN"}
 							</TableCell>
-							<TableCell className="py-2 text-muted-foreground">
+							<TableCell className="py-0 text-muted-foreground">
 								{formatBytes(file.size)}
 							</TableCell>
-							<TableCell className="py-2 text-right flex justify-end whitespace-nowrap text-muted-foreground">
+							<TableCell className="py-0 text-right flex justify-end whitespace-nowrap text-muted-foreground">
 								<FileProgress fileName={file.name} />
 							</TableCell>
 						</TableRow>

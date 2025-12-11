@@ -146,6 +146,9 @@ func (h *Hub) Run() {
 
 			// Case 1: A client wants to create a new room
 			case "create_room":
+				// Store client metadata
+				message.client.ClientType = message.ClientType
+
 				roomID := h.generateRoomID()
 				room := &Room{
 					ID:     roomID,
@@ -154,7 +157,7 @@ func (h *Hub) Run() {
 				h.Rooms[roomID] = room
 				message.client.RoomID = roomID
 
-				log.Printf("Room created: %s by %s", roomID, message.client.Conn.RemoteAddr())
+				log.Printf("Room created: %s by %s (type=%s)", roomID, message.client.Conn.RemoteAddr(), message.client.ClientType)
 
 				// Send the "room_created" message back to the sender
 				message.client.Send <- &Message{
@@ -164,6 +167,9 @@ func (h *Hub) Run() {
 
 			// Case 2: A client wants to join an existing room
 			case "join_room":
+				// Store client metadata
+				message.client.ClientType = message.ClientType
+
 				roomID := message.RoomID
 				room, ok := h.Rooms[roomID]
 
@@ -191,20 +197,33 @@ func (h *Hub) Run() {
 				room.Receiver = message.client
 				message.client.RoomID = roomID
 
-				log.Printf("Client %s joined room %s", message.client.Conn.RemoteAddr(), roomID)
+				log.Printf("Client %s joined room %s (type=%s)", message.client.Conn.RemoteAddr(), roomID, message.client.ClientType)
 
 				// Notify the *sender* (Peer A) that the receiver has joined
+				// Include receiver's peer info for protocol negotiation
 				if room.Sender != nil {
+					peerInfo := PeerInfo{
+						ClientType: message.client.ClientType,
+					}
+					peerInfoBytes, _ := json.Marshal(peerInfo)
+
 					room.Sender.Send <- &Message{
-						Type: "peer_joined",
+						Type:    "peer_joined",
+						Payload: peerInfoBytes,
 					}
 				}
 
 				// Notify the *receiver* (Peer B) that they successfully joined
-				// This tells their UI to change to a "waiting for offer" state
+				// Include sender's peer info for protocol negotiation
+				peerInfo := PeerInfo{
+					ClientType: room.Sender.ClientType,
+				}
+				peerInfoBytes, _ := json.Marshal(peerInfo)
+
 				message.client.Send <- &Message{
-					Type:   "join_success",
-					RoomID: roomID,
+					Type:    "join_success",
+					RoomID:  roomID,
+					Payload: peerInfoBytes,
 				}
 
 			// Case 3: A client is sending a WebRTC signal (offer, answer, or ICE candidate)

@@ -1,0 +1,122 @@
+# This is an example .goreleaser.yml file with some sensible defaults.
+# Make sure to check the documentation at https://goreleaser.com
+
+# The lines below are called `modelines`. See `:help modeline`
+# Feel free to remove those if you don't want/need to use them.
+# yaml-language-server: $schema=https://goreleaser.com/static/schema.json
+# vim: set ts=2 sw=2 tw=0 fo=cnqoj
+
+version: 2
+
+before:
+  hooks:
+    # You may remove this if you don't use go modules.
+    - go mod tidy
+    # you may remove this if you don't need go generate
+    - go generate ./...
+
+builds:
+  - env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - windows
+      - darwin
+
+archives:
+  - formats: [tar.gz]
+    # name_template matches the format in install.sh: warpdrop_v{version}_{OS}-{Arch}.{ext}
+    name_template: >-
+      {{ .ProjectName }}_v{{ .Version }}_
+      {{- if eq .Os "darwin" }}macOS
+      {{- else if eq .Os "linux" }}Linux
+      {{- else if eq .Os "windows" }}Windows
+      {{- else }}{{ .Os }}{{ end }}-
+      {{- if eq .Arch "amd64" }}64bit
+      {{- else if eq .Arch "386" }}32bit
+      {{- else if eq .Arch "arm64" }}ARM64
+      {{- else if eq .Arch "arm" }}ARM
+      {{- else if eq .Arch "riscv64" }}RISCV64
+      {{- else }}{{ .Arch }}{{ end }}
+    # use zip for windows archives
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+
+release:
+  footer: >-
+
+    ---
+
+    Released by [GoReleaser](https://github.com/goreleaser/goreleaser).
+
+# --- Added distribution configs for Scoop and Homebrew ---
+
+# SCOOP BUCKET CONFIGURATION
+# To use this:
+# 1. Create (or pick) a bucket repo on GitHub, e.g. BioHazard786/scoop-bucket
+#    A bucket is just a Git repo whose root contains one JSON per app.
+# 2. Set GITHUB_TOKEN with repo write permissions when running `goreleaser release`.
+# 3. First release will add janitor.json; users install via:
+#      scoop bucket add biohazard786 https://github.com/BioHazard786/scoop-bucket.git
+#      scoop install biohazard786/janitor
+# Notes:
+# - Scoop needs a single Windows archive (zip) per arch. This config already
+#   produces a zip for windows via format_overrides.
+# - Keep archive naming stable; default naming works here.
+scoops:
+  - name: warpdrop
+    description: "A simple, secure p2p file sharing tool using WebRTC technology."
+    homepage: "https://github.com/BioHazard786/Warpdrop"
+    license: "MIT" # adjust if you add a LICENSE file
+    # Persist a future config directory if needed (example only)
+    # persist:
+    #   - "config.yml"
+    repository:
+      owner: BioHazard786
+      name: scoop-bucket
+      branch: main
+    commit_msg_template: "scoop: update warpdrop to {{ .Tag }}"
+    # Uncomment to enable automatic PRs to another fork (Pro feature requirements)
+    # pull_request:
+    #   enabled: false
+
+# HOMEBREW TAP CONFIGURATION (Casks)
+# GoReleaser v2 prefers casks over formulas. For pure CLI tools, formulas are
+# still common; if you prefer formulas, you can manually maintain one in a tap.
+# This cask will allow: `brew install --cask janitor` after user taps.
+# To use this:
+# 1. Create a tap repo: BioHazard786/homebrew-janitor (default Casks folder not required to specify).
+# 2. Ensure an appcast is not needed (simple CLI).
+# 3. Set GITHUB_TOKEN with write access.
+# Users install:
+#    brew tap BioHazard786/janitor
+#    brew install --cask janitor
+homebrew_casks:
+  - name: warpdrop
+    homepage: "https://github.com/BioHazard786/Warpdrop"
+    description: "A simple, secure p2p file sharing tool using WebRTC technology."
+    license: "MIT"
+    repository:
+      owner: BioHazard786
+      name: homebrew-tap
+      branch: main
+    commit_msg_template: "homebrew: update warpdrop to {{ .Tag }}"
+    # Binary name (defaults to project name). Provided for clarity.
+    binaries:
+      - warpdrop
+    # If you later add man pages, list them here (plural form):
+    # manpages:
+    #   - janitor.1
+    # Casks generally expect an app bundle; for CLI we just ship the binary archive.
+    # brew will place the binary in /usr/local/bin (on Intel) via artifact stanza Auto.
+    # If codesigning/notarization happens later on macOS, configure here.
+# (Optional) If you decide formulas are preferable, you can still add a deprecated
+# `brews:` block, but GoReleaser signals deprecation. Prefer the cask above.

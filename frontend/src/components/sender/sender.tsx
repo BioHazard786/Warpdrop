@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { Separator } from "@/components/ui/separator";
 import { IsSenderContext } from "@/context/is-sender-context";
+import { useCloseConfirmation } from "@/hooks/use-close-conformation";
 import { useWebRTC } from "@/hooks/use-webrtc";
 import { createSharableLink } from "@/lib/utils";
 import useFileUploadStore, {
@@ -35,6 +36,8 @@ export default function Sender() {
 	const currentFileProgress = useSenderStore.use.currentFileProgress();
 	const completedFileCount = useSenderStore.use.completedFileCount();
 	const roomId = useSenderStore.use.roomId();
+	const transferSpeed = useSenderStore.use.transferSpeed();
+	const estimatedTimeRemaining = useSenderStore.use.estimatedTimeRemaining();
 	const { reset } = useSenderActions();
 	const { setIsSender } = useRoleActions();
 	const status = useSenderStore.use.status();
@@ -43,6 +46,8 @@ export default function Sender() {
 	setIsSender(use(IsSenderContext));
 
 	useWebRTC({ shouldConnect });
+
+	useCloseConfirmation({ status });
 
 	const handleStart = () => {
 		setHasStarted(true);
@@ -132,25 +137,15 @@ export default function Sender() {
 			)}
 
 			{/* Show file table, QR code, and connection info after starting */}
-			{hasStarted && (
+			{hasStarted && roomId && (
 				<>
 					<SenderFileTable />
 
 					<div className="flex gap-3 items-center w-full">
-						<QRCode
-							roomId={roomId || "example-room-id"}
-							width={180}
-							height={180}
-						/>
+						<QRCode roomId={roomId} width={180} height={180} />
 						<div className="flex justify-between items-center flex-col w-full h-[140px]">
-							<CopyLink
-								label="Copy URL"
-								value={createSharableLink(roomId || "example-room-id")}
-							/>
-							<CopyLink
-								label="Copy RoomID"
-								value={roomId || "example-room-id"}
-							/>
+							<CopyLink label="Copy URL" value={createSharableLink(roomId)} />
+							<CopyLink label="Copy RoomID" value={roomId} />
 						</div>
 					</div>
 
@@ -175,9 +170,9 @@ export default function Sender() {
 									<div className="flex justify-between text-sm">
 										<span className="space-x-2">
 											<span className="font-medium ">
-												{device.browserName}{" "}
+												{device.deviceName}{" "}
 												<span className="text-muted-foreground">
-													v{device.browserVersion}
+													v{device.deviceVersion}
 												</span>
 											</span>
 											{renderStatusBadge(status)}
@@ -188,10 +183,12 @@ export default function Sender() {
 									</div>
 									<Progress
 										value={currentFileProgress * 100}
-										className="h-2 [&>div]:rounded-r-full"
+										className="h-5 rounded-sm"
 									/>
 									<div className="flex justify-between text-xs text-muted-foreground">
-										<span>{Math.round(currentFileProgress * 100)}%</span>
+										<span>
+											{transferSpeed} • ETA {estimatedTimeRemaining}
+										</span>
 										<span>
 											{completedFileCount} / {files.length} files
 										</span>

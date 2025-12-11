@@ -5,11 +5,17 @@ import "encoding/json"
 // Message defines the structure for all C2S (Client to Server)
 // and S2C (Server to Client) websocket messages.
 type Message struct {
-	Type    string          `json:"type"`
-	Payload json.RawMessage `json:"payload,omitempty"`
-	RoomID  string          `json:"room_id,omitempty"`
+	Type       string          `json:"type"`
+	Payload    json.RawMessage `json:"payload,omitempty"`
+	RoomID     string          `json:"room_id,omitempty"`
+	ClientType string          `json:"client_type,omitempty"` // "cli" or "web"  // ["multi-channel", "msgpack"]
 
 	// client is the client that sent the message.
 	// It's used internally by the Hub and not sent over JSON.
 	client *Client `json:"-"`
+}
+
+// PeerInfo contains information about a connected peer
+type PeerInfo struct {
+	ClientType string `json:"client_type"`
 }

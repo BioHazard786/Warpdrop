@@ -1,4 +1,4 @@
-module github.com/BioHazard786/WarpDrop
+module github.com/BioHazard786/Warpdrop/backend
 
 go 1.25.3
 

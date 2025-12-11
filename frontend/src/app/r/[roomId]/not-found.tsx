@@ -64,7 +64,7 @@ function NotFound() {
 				className="text-muted-foreground text-sm"
 				size="sm"
 			>
-				<Link href="/">
+				<Link href="/" replace>
 					Click here to send files <ArrowUpRightIcon />
 				</Link>
 			</Button>

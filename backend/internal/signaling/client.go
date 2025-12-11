@@ -36,6 +36,9 @@ type Client struct {
 	// We write to this channel, and a separate goroutine (writePump)
 	// reads from it and writes to the websocket.
 	Send chan *Message
+
+	// Client metadata for protocol negotiation
+	ClientType string // "cli" or "web"
 }
 
 // ReadPump pumps messages from the websocket connection to the hub.

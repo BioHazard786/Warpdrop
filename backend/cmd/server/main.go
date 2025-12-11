@@ -4,17 +4,12 @@ import (
 	"log"
 	"net/http"
 
-	"github.com/BioHazard786/WarpDrop/internal/server"
-	"github.com/BioHazard786/WarpDrop/internal/signaling"
+	"github.com/BioHazard786/Warpdrop/backend/internal/server"
+	"github.com/BioHazard786/Warpdrop/backend/internal/signaling"
 )
 
 // Health Check endpoint
 func healthCheckHandler(w http.ResponseWriter, r *http.Request) {
-	// Simple check to make sure the health endpoint only responds to "/health"
-	if r.URL.Path != "/" {
-		http.NotFound(w, r)
-		return
-	}
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	w.WriteHeader(http.StatusOK)
 	w.Write([]byte("Signaling server is healthy."))
@@ -30,7 +25,7 @@ func main() {
 	go hub.Run()
 
 	// 3. Register our handlers
-	http.HandleFunc("/", healthCheckHandler)
+	http.HandleFunc("/health", healthCheckHandler)
 
 	// Get the ServeWs handler function (which includes the hub as a dependency)
 	// and register it for the "/ws" route

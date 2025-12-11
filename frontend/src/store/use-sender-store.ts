@@ -2,12 +2,8 @@ import { create } from "zustand";
 import createSelectors from "./selectors";
 
 type ConnectedDevice = {
-	browserName: string;
-	browserVersion: string;
-	osName: string;
-	osVersion: string;
-	mobileVendor: string;
-	mobileModel: string;
+	deviceName: string;
+	deviceVersion: string;
 };
 export enum SenderStatus {
 	IDLE = "idle",
@@ -28,6 +24,8 @@ type State = {
 	roomId: string | null;
 	status: SenderStatus;
 	error: string | null;
+	transferSpeed: string;
+	estimatedTimeRemaining: string;
 };
 
 type Actions = {
@@ -41,6 +39,8 @@ type Actions = {
 		setRoomId: (roomId: string) => void;
 		setStatus: (status: SenderStatus) => void;
 		setError: (error: string | null) => void;
+		setTransferSpeed: (speed: string) => void;
+		setEstimatedTimeRemaining: (eta: string) => void;
 		clearError: () => void;
 		reset: () => void;
 	};
@@ -55,6 +55,8 @@ const initialState: State = {
 	roomId: null,
 	status: SenderStatus.IDLE,
 	error: null,
+	transferSpeed: "0 B/s",
+	estimatedTimeRemaining: "--",
 };
 
 const useSenderStoreBase = create<State & Actions>()((set) => ({
@@ -74,6 +76,8 @@ const useSenderStoreBase = create<State & Actions>()((set) => ({
 		setStatus: (status) => set({ status }),
 		setError: (error) =>
 			set({ error, status: error ? SenderStatus.ERROR : SenderStatus.IDLE }),
+		setTransferSpeed: (speed) => set({ transferSpeed: speed }),
+		setEstimatedTimeRemaining: (eta) => set({ estimatedTimeRemaining: eta }),
 		clearError: () => set({ error: null, status: SenderStatus.IDLE }),
 		reset: () => set(initialState),
 	},

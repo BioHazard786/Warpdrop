@@ -2,11 +2,34 @@ import { decode, encode } from "@msgpack/msgpack";
 import type { Message } from "@/lib/messages";
 
 // --- Configuration ---
+function getIceServers(): RTCIceServer[] {
+	const stunServer =
+		process.env.NEXT_PUBLIC_STUN_SERVER || "stun:stun.l.google.com:19302";
+
+	const servers: RTCIceServer[] = [{ urls: stunServer }];
+
+	const turnServer = process.env.NEXT_PUBLIC_TURN_SERVER;
+	if (turnServer) {
+		const turnUsername = process.env.NEXT_PUBLIC_TURN_USERNAME || "warpdrop";
+		const turnPassword =
+			process.env.NEXT_PUBLIC_TURN_PASSWORD || "warpdrop-secret";
+
+		servers.push({
+			urls: [
+				`${turnServer}:3478?transport=udp`,
+				`${turnServer}:3478?transport=tcp`,
+				`turns:${turnServer}:5349?transport=tcp`,
+			],
+			username: turnUsername,
+			credential: turnPassword,
+		});
+	}
+
+	return servers;
+}
+
 export const PEER_CONNECTION_CONFIG: RTCConfiguration = {
-	iceServers: [
-		{ urls: "stun:stun.l.google.com:19302" },
-		{ urls: "stun:stun1.l.google.com:19302" },
-	],
+	iceServers: getIceServers(),
 };
 
 // Keep individual send sizes conservative to avoid DC closure from oversize frames

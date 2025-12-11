@@ -1,4 +1,22 @@
 services:
+  installer:
+    build:
+      context: ./installer
+    image: warpdrop-installer:latest
+    expose:
+      - "8000"
+    restart: unless-stopped
+    networks:
+      - web
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.installer.rule=Host(`install.${DOMAIN}`)"
+      - "traefik.http.routers.installer.entryPoints=websecure"
+      - "traefik.http.routers.installer.tls.certresolver=le"
+      - "traefik.http.services.installer.loadbalancer.server.port=8000"
+      - "traefik.http.services.backend.loadbalancer.healthcheck.path=/health"
+      - "traefik.http.services.backend.loadbalancer.healthcheck.interval=5s"
+
   backend:
     build:
       context: ./backend
@@ -16,6 +34,8 @@ services:
       - "traefik.http.routers.backend.entryPoints=websecure"
       - "traefik.http.routers.backend.tls.certresolver=le"
       - "traefik.http.services.backend.loadbalancer.server.port=8080"
+      - "traefik.http.services.backend.loadbalancer.healthcheck.path=/health"
+      - "traefik.http.services.backend.loadbalancer.healthcheck.interval=5s"
 
   frontend:
     build:
@@ -23,6 +43,10 @@ services:
     image: warpdrop-frontend:latest
     environment:
       - NODE_ENV=production
+      - NEXT_PUBLIC_STUN_SERVER=${NEXT_PUBLIC_STUN_SERVER:-stun:stun.l.google.com:19302}
+      - NEXT_PUBLIC_TURN_SERVER=${NEXT_PUBLIC_TURN_SERVER:-turn:${DOMAIN}}
+      - NEXT_PUBLIC_TURN_USERNAME=${NEXT_PUBLIC_TURN_USERNAME:-warpdrop}
+      - NEXT_PUBLIC_TURN_PASSWORD=${NEXT_PUBLIC_TURN_PASSWORD:-warpdrop-secret}
     expose:
       - "3000"
     healthcheck:
@@ -40,6 +64,22 @@ services:
       - "traefik.http.routers.frontend.tls.certresolver=le"
       - "traefik.http.services.frontend.loadbalancer.server.port=3000"
       - "traefik.http.routers.frontend.middlewares=secure-headers@file"
+
+  coturn:
+    image: coturn/coturn:latest
+    ports:
+      - "3478:3478/tcp"
+      - "3478:3478/udp"
+      - "5349:5349/tcp"
+      - "5349:5349/udp"
+    volumes:
+      - ./deploy/turnserver.conf:/etc/coturn/turnserver.conf:ro
+    restart: unless-stopped
+    networks:
+      - web
+    environment:
+      - DETECT_EXTERNAL_IP=yes
+      - DETECT_RELAY_IP=yes
 
   traefik:
     image: traefik:v3.6

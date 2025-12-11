@@ -20,12 +20,8 @@ export enum MessageType {
 export const DeviceInfoMessage = z.object({
 	type: z.literal(MessageType.DEVICE_INFO),
 	payload: z.object({
-		browserName: z.string(),
-		browserVersion: z.string(),
-		osName: z.string(),
-		osVersion: z.string(),
-		mobileVendor: z.string(),
-		mobileModel: z.string(),
+		deviceName: z.string(),
+		deviceVersion: z.string(),
 	}),
 });
 
@@ -69,11 +65,13 @@ export const ChunkAcknowledgmentMessage = z.object({
 
 export const CreateRoomMessage = z.object({
 	type: z.literal(MessageType.CREATE_ROOM),
+	client_type: z.string().optional(),
 });
 
 export const JoinRoomMessage = z.object({
 	type: z.literal(MessageType.JOIN_ROOM),
 	room_id: z.string(),
+	client_type: z.string().optional(),
 });
 
 export const RoomCreatedMessage = z.object({
@@ -81,13 +79,19 @@ export const RoomCreatedMessage = z.object({
 	room_id: z.string(),
 });
 
+export const PeerInfo = z.object({
+	client_type: z.string(),
+});
+
 export const JoinSuccessMessage = z.object({
 	type: z.literal(MessageType.JOIN_SUCCESS),
 	room_id: z.string(),
+	payload: PeerInfo.optional(),
 });
 
 export const PeerJoinedMessage = z.object({
 	type: z.literal(MessageType.PEER_JOINED),
+	payload: PeerInfo.optional(),
 });
 
 export const PeerLeftMessage = z.object({

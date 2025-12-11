@@ -14,6 +14,8 @@ const WS_URL =
 			`${window.location.protocol === "https:" ? "wss" : "ws"}://${window.location.host}/ws`)
 		: null;
 
+// const WS_URL = "wss://warpdrop.qzz.io/ws";
+
 // useWebRTC: sets up WebSocket signaling + WebRTC peer connection lifecycle.
 // Responsibilities:
 // 1. Create/join rooms via signaling server.
@@ -28,6 +30,8 @@ export function useWebRTC({
 }) {
 	const isSender = use(IsSenderContext);
 	const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
+	const iceCandidateQueueRef = useRef<RTCIceCandidateInit[]>([]);
+	const remoteDescriptionSetRef = useRef(false);
 	const { resetWebRTC } = useRTCActions();
 	const senderActions = useSenderActions();
 	const receiverActions = useReceiverActions();
@@ -43,6 +47,7 @@ export function useWebRTC({
 
 					const message: MessageOfType<MessageType.CREATE_ROOM> = {
 						type: MessageType.CREATE_ROOM,
+						client_type: "web",
 					};
 
 					sendJsonMessage(message);
@@ -52,6 +57,7 @@ export function useWebRTC({
 					const message: MessageOfType<MessageType.JOIN_ROOM> = {
 						type: MessageType.JOIN_ROOM,
 						room_id: roomId,
+						client_type: "web",
 					};
 
 					sendJsonMessage(message);
@@ -183,6 +189,8 @@ export function useWebRTC({
 				"Received signal. Creating peer connection...",
 			);
 			peerConnectionRef.current = createPeerConnection(sendJsonMessage);
+			remoteDescriptionSetRef.current = false;
+			iceCandidateQueueRef.current = [];
 		}
 
 		const pc = peerConnectionRef.current;
@@ -191,6 +199,24 @@ export function useWebRTC({
 			// Check if this is an SDP message (offer/answer)
 			try {
 				await pc.setRemoteDescription(new RTCSessionDescription(payload));
+				remoteDescriptionSetRef.current = true;
+
+				// Process any queued ICE candidates now that remote description is set
+				while (iceCandidateQueueRef.current.length > 0) {
+					const queuedCandidate = iceCandidateQueueRef.current.shift();
+					if (queuedCandidate) {
+						try {
+							await pc.addIceCandidate(new RTCIceCandidate(queuedCandidate));
+						} catch (err) {
+							logger(
+								null,
+								import.meta.url,
+								"Error adding queued ICE candidate:",
+								err,
+							);
+						}
+					}
+				}
 
 				// If we received an offer, create and send answer
 				if (payload.type === "offer") {
@@ -216,13 +242,27 @@ export function useWebRTC({
 		} else if (payload.ice_candidate) {
 			// It's an ICE candidate
 			try {
+				// If remote description is not set yet, queue the candidate
+				if (!remoteDescriptionSetRef.current) {
+					logger(
+						null,
+						import.meta.url,
+						"Remote description not set yet. Queueing ICE candidate.",
+					);
+					iceCandidateQueueRef.current.push(payload.ice_candidate);
+					return;
+				}
+
 				await pc.addIceCandidate(new RTCIceCandidate(payload.ice_candidate));
 			} catch (err) {
-				logger(null, import.meta.url, "Error adding ICE candidate:", err);
-				const errMsg =
-					err instanceof Error ? err.message : "Failed to add ICE candidate";
-				if (isSender) senderActions.setError(errMsg);
-				else receiverActions.setError(errMsg);
+				// Ignore errors for ICE candidates - they're not critical
+				logger(
+					null,
+					import.meta.url,
+					"Warning: Error adding ICE candidate (non-critical):",
+					err,
+				);
+				// Don't set error state for ICE candidate failures as the transfer still works
 			}
 		}
 	};

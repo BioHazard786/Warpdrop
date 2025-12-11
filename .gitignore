@@ -97,6 +97,17 @@ backend/tmp/
 backend/.air.toml
 
 # ================================
+# CLI (Go)
+# ================================
+
+# Binaries for programs and plugins
+cli/*.exe
+
+# Test binary, built with `go test -c`
+cli/*.test
+cli/cmd/test/test.go
+
+# ================================
 # GENERAL
 # ================================
 

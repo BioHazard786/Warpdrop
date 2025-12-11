@@ -7,6 +7,7 @@ import Hero from "@/components/hero";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { IsSenderContext } from "@/context/is-sender-context";
+import { useCloseConfirmation } from "@/hooks/use-close-conformation";
 import { useWebRTC } from "@/hooks/use-webrtc";
 import { logger } from "@/lib/logger";
 import { initializeFileDownload } from "@/lib/webrtc";
@@ -24,6 +25,8 @@ export default function Receiver({ roomId }: { roomId: string }) {
 	const filesMetadata = useReceiverStore.use.filesMetadata();
 	const bytesDownloaded = useReceiverStore.use.bytesDownloaded();
 	const currentFileIndex = useReceiverStore.use.currentFileIndex();
+	const transferSpeed = useReceiverStore.use.transferSpeed();
+	const estimatedTimeRemaining = useReceiverStore.use.estimatedTimeRemaining();
 	const { setRoomId } = useReceiverActions();
 	const status = useReceiverStore.use.status();
 	const error = useReceiverStore.use.error();
@@ -36,15 +39,17 @@ export default function Receiver({ roomId }: { roomId: string }) {
 
 	useWebRTC({ shouldConnect, roomId });
 
-	useEffect(() => {
-		setRoomId(roomId);
-	}, [roomId, setRoomId]);
+	useCloseConfirmation({ status });
 
 	const handleReceive = () => {
 		logger("receiver", import.meta.url, "Starting file download process");
 		setHasStarted(true);
 		initializeFileDownload();
 	};
+
+	useEffect(() => {
+		setRoomId(roomId);
+	}, [roomId, setRoomId]);
 
 	useEffect(() => {
 		if (status === ReceiverStatus.COMPLETED) {
@@ -60,6 +65,8 @@ export default function Receiver({ roomId }: { roomId: string }) {
 	if (error && error === "Room not found") {
 		return notFound();
 	}
+
+	console.log(status);
 
 	return (
 		<main className="flex flex-col items-center justify-center min-h-screen p-8 space-y-8 max-w-xl min-w-sm md:min-w-md lg:min-w-lg mx-auto">
@@ -91,19 +98,18 @@ export default function Receiver({ roomId }: { roomId: string }) {
 								? "Download completed"
 								: "Downloading..."}
 						</span>
-						<span className="font-medium">{Math.round(overallProgress)}%</span>
+						<span className="font-medium">
+							{transferSpeed} • ETA {estimatedTimeRemaining}
+						</span>
 					</div>
-					<Progress
-						value={overallProgress}
-						className="h-2 [&>div]:rounded-r-full"
-					/>
+					<Progress value={overallProgress} className="h-5 rounded-sm" />
 					<div className="flex justify-between text-xs text-muted-foreground">
 						<span>
 							{(bytesDownloaded / (1024 * 1024)).toFixed(2)} MB /{" "}
 							{(totalBytes / (1024 * 1024)).toFixed(2)} MB
 						</span>
 						<span>
-							File {currentFileIndex} / {filesMetadata.length}
+							{currentFileIndex} / {filesMetadata.length} files
 						</span>
 					</div>
 				</div>

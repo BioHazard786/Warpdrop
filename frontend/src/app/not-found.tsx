@@ -24,7 +24,9 @@ function NotFound() {
 			</EmptyHeader>
 			<EmptyContent>
 				<Button asChild size="sm" className="text-sm">
-					<Link href="/">Go to Home</Link>
+					<Link href="/" replace>
+						Go to Home
+					</Link>
 				</Button>
 			</EmptyContent>
 		</Empty>

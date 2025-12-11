@@ -14,7 +14,7 @@ Self-deployable, privacy-friendly, realtime file sharing over WebRTC with a tiny
 
 ```bash
 # from project root
-cp deploy/.env.example .env
+cp .env.example .env
 # build images
 docker compose build
 # start services
@@ -34,7 +34,13 @@ docker compose logs -f traefik
 
 ```env
 DOMAIN=yourdomain.com
-ACME_EMAIL=you@example.com
+ACME_EMAIL=your-email@example.com
+
+NEXT_PUBLIC_STUN_SERVER=stun:stun.l.google.com:19302
+
+NEXT_PUBLIC_TURN_SERVER=yourdomain.com
+NEXT_PUBLIC_TURN_USERNAME=warpdrop
+NEXT_PUBLIC_TURN_PASSWORD=warpdrop-secret
 ```
 
 4. Bring up the stack:
@@ -48,6 +54,30 @@ docker compose up -d --build
 ```bash
 docker compose logs -f traefik
 ```
+
+6. Open firewall ports on your VPS:
+
+| Port | Protocol | Service | Purpose |
+|------|----------|---------|---------|
+| 80 | TCP | Traefik | HTTP (Let's Encrypt ACME challenge) |
+| 443 | TCP | Traefik | HTTPS (frontend + backend) |
+| 3478 | UDP | Coturn | TURN relay (media) |
+| 3478 | TCP | Coturn | TURN relay (fallback) |
+| 5349 | UDP | Coturn | TURN TLS (media) |
+| 5349 | TCP | Coturn | TURN TLS (fallback) |
+
+UFW example (Linux):
+
+```bash
+sudo ufw allow 80/tcp
+sudo ufw allow 443/tcp
+sudo ufw allow 3478/udp
+sudo ufw allow 3478/tcp
+sudo ufw allow 5349/udp
+sudo ufw allow 5349/tcp
+```
+
+Or use your cloud provider's security group (AWS, DigitalOcean, Linode, etc.).
 
 - Routing model:
   - `https://yourdomain.com` → frontend (Next.js on port 3000)
@@ -64,9 +94,39 @@ If you pick Nginx, you can remove Traefik from `docker-compose.yml`.
 
 ## Configuration
 
+### Environment Variables
+
+Copy `.env.example` to `.env` and configure:
+
+```env
+# Domain for your deployment
+DOMAIN=yourdomain.com
+ACME_EMAIL=your-email@example.com
+
+# STUN server (helps clients discover their public IP)
+NEXT_PUBLIC_STUN_SERVER=stun:stun.l.google.com:19302
+
+# TURN server (relays traffic for clients behind restrictive NATs)
+NEXT_PUBLIC_TURN_SERVER=yourdomain.com
+NEXT_PUBLIC_TURN_USERNAME=warpdrop
+NEXT_PUBLIC_TURN_PASSWORD=warpdrop-secret
+```
+
+### ICE Server Configuration
+
+WarpDrop includes:
+
+- **STUN**: Helps peers discover their public IP and establish direct connections
+- **TURN**: Relays traffic for peers that can't connect directly (restrictive firewalls/NATs)
+
+The TURN server (coturn) is automatically included in the Docker Compose stack and uses your configured domain. For best connectivity, keep both enabled.
+
+### Services
+
 - Frontend scripts (Bun): `bun run build`, `bun run start` (port 3000)
 - Backend (Go): serves `/` (health) and `/ws` (WebSocket signaling) on 8080
 - Traefik: ACME HTTP challenge, automatic HTTP→HTTPS redirect, security headers middleware via `deploy/traefik_dynamic.yml`
+- Coturn: TURN/STUN relay server on ports 3478 (TCP/UDP) and 5349 (TLS)
 
 ## Development
 
@@ -85,7 +145,7 @@ go run ./cmd/server
 
 - `frontend/` Next.js app (Bun)
 - `backend/` Go signaling server
-- `deploy/` Traefik dynamic config, Nginx sample, env example
+- `deploy/` Traefik dynamic config, Nginx sample, Turn Server config
 - `docker-compose.yml` Services: frontend, backend, traefik
 
 ## Security Notes
@@ -96,8 +156,8 @@ go run ./cmd/server
 
 ## Roadmap / TODOs
 
-- [ ] CLI tool for quick sharing via terminal
-  - ❌ not yet implemented
+- [x] CLI tool for quick sharing via terminal
+  - ✅ implemented
 - [ ] Support for Multiple Receivers
   - ❌ not yet implemented
 - [ ] Mobile App (Optional)
@@ -108,6 +168,8 @@ go run ./cmd/server
 - Certs fail to issue: ensure port 80 is reachable (ACME HTTP challenge) and DNS points to your VPS.
 - WebSocket `101` upgrade missing: confirm proxy passes `Upgrade` and `Connection` headers (Traefik handles automatically; Nginx sample provided).
 - Frontend 404s: check domain in `.env` and Traefik labels.
+- TURN server connection fails: ensure ports 3478 (UDP/TCP) and 5349 (TLS) are open in your firewall, and `NEXT_PUBLIC_TURN_SERVER` matches your domain.
+- WebRTC connection issues: check browser console for ICE candidate errors. TURN server fallback ensures connectivity even with restrictive NATs.
 
 ## License
 

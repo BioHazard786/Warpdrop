@@ -6,7 +6,7 @@ import (
 
 	"github.com/gorilla/websocket"
 
-	"github.com/BioHazard786/WarpDrop/internal/signaling"
+	"github.com/BioHazard786/Warpdrop/backend/internal/signaling"
 )
 
 // Configure the websocket upgrader

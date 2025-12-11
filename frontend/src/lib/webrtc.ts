@@ -1,11 +1,4 @@
-import {
-	browserName,
-	browserVersion,
-	mobileModel,
-	mobileVendor,
-	osName,
-	osVersion,
-} from "react-device-detect";
+import { browserName, browserVersion } from "react-device-detect";
 import type { SendJsonMessage } from "react-use-websocket/dist/lib/types";
 import {
 	streamDownloadMultipleFiles,
@@ -13,6 +6,7 @@ import {
 } from "@/lib/download-utils";
 import { logger } from "@/lib/logger";
 import { type MessageOfType, MessageType, parseMessage } from "@/lib/messages";
+import { calculateTransferStats } from "@/lib/transfer-stats-utils";
 import {
 	getZipFilename,
 	HIGH_WATER_MARK,
@@ -101,8 +95,33 @@ export function setupDataChannelHandlers(dataChannel: RTCDataChannel) {
 		logger(null, import.meta.url, "Data channel is closed.");
 		resetWebRTC();
 		if (isSender) {
+			const { status } = useSenderStore.getState();
+			if (status !== SenderStatus.COMPLETED) {
+				// If not completed, this could be receiver disconnecting early
+				logger(
+					"receiver",
+					import.meta.url,
+					"Data channel closed during transfer, status:",
+					status,
+				);
+				resetWebRTC();
+			}
 			senderActions.setStatus(SenderStatus.IDLE);
 			senderActions.removeConnectedDevice();
+		} else {
+			// On the receiver side, check if we were in a transfer state
+			// If so, this is a normal closure after transfer
+			const { status } = useReceiverStore.getState();
+			if (status !== ReceiverStatus.COMPLETED) {
+				// If not completed, this could be sender disconnecting early
+				logger(
+					"receiver",
+					import.meta.url,
+					"Data channel closed during transfer, status:",
+					status,
+				);
+				resetWebRTC();
+			}
 		}
 	};
 
@@ -110,11 +129,45 @@ export function setupDataChannelHandlers(dataChannel: RTCDataChannel) {
 		logger(null, import.meta.url, "Data channel error:", err);
 
 		const { isSender } = useRoleStore.getState();
-		const errMsg = `${err.error.name} - ${err.error.message}`;
 
 		if (isSender) {
+			const errMsg = err.error
+				? `${err.error.name} - ${err.error.message}`
+				: "Data channel error";
+
+			const { status } = useSenderStore.getState();
+			if (
+				status === SenderStatus.COMPLETED ||
+				status === SenderStatus.SENDING
+			) {
+				// Transfer was in progress or completed - treat as normal close
+				logger(
+					"sender",
+					import.meta.url,
+					"Data channel error during/after transfer, treating as close",
+				);
+				resetWebRTC();
+				return;
+			}
 			senderActions.setError(errMsg);
 		} else {
+			// On the receiver side, onerror can fire instead of onclose when the sender
+			// closes the data channel (browser-specific behavior). Check if transfer
+			// was completed or if this is a genuine error.
+			const { status } = useReceiverStore.getState();
+			if (
+				status === ReceiverStatus.COMPLETED ||
+				status === ReceiverStatus.RECEIVING_FILE
+			) {
+				// Transfer was in progress or completed - treat as normal close
+				logger(
+					"receiver",
+					import.meta.url,
+					"Data channel error during/after transfer, treating as close",
+				);
+				resetWebRTC();
+				return;
+			}
 			receiverActions.setError("Sender has aborted the connection.");
 		}
 	};
@@ -169,8 +222,7 @@ export function setupDataChannelHandlers(dataChannel: RTCDataChannel) {
 					break;
 
 				case MessageType.DOWNLOADING_DONE:
-					if (isSender) senderActions.setStatus(SenderStatus.COMPLETED);
-					else receiverActions.setStatus(ReceiverStatus.COMPLETED);
+					senderActions.setStatus(SenderStatus.COMPLETED);
 					logger(
 						"sender",
 						import.meta.url,
@@ -219,12 +271,8 @@ function sendDeviceInfo() {
 		packMessage({
 			type: MessageType.DEVICE_INFO,
 			payload: {
-				browserName,
-				browserVersion,
-				osName,
-				osVersion,
-				mobileVendor,
-				mobileModel,
+				deviceName: browserName,
+				deviceVersion: browserVersion,
 			},
 		}),
 	);
@@ -251,6 +299,8 @@ async function streamFileChunks(fileName: string, startOffset: number) {
 	dataChannel.bufferedAmountLowThreshold = LOW_WATER_MARK;
 
 	let currentOffset = startOffset;
+	let lastProgressTime = Date.now();
+	let lastProgressOffset = currentOffset;
 
 	// Helper to wait for buffer to drain
 	const waitForBufferDrain = (): Promise<void> => {
@@ -305,6 +355,23 @@ async function streamFileChunks(fileName: string, startOffset: number) {
 			senderActions.setCurrentFileOffset(nextChunkEnd);
 			senderActions.setCurrentFileProgress(nextChunkEnd / file.size);
 			senderActions.setStatus(SenderStatus.SENDING);
+
+			// Calculate and update transfer stats
+			const now = Date.now();
+			const timeDiffSeconds = (now - lastProgressTime) / 1000;
+			if (timeDiffSeconds >= 1) {
+				// Update stats every second
+				const { speed, eta } = calculateTransferStats(
+					nextChunkEnd,
+					file.size,
+					lastProgressOffset,
+					timeDiffSeconds,
+				);
+				senderActions.setTransferSpeed(speed);
+				senderActions.setEstimatedTimeRemaining(eta);
+				lastProgressTime = now;
+				lastProgressOffset = nextChunkEnd;
+			}
 
 			// logger(
 			// 	"sender",
@@ -515,6 +582,8 @@ function requestNextFile() {
 }
 
 let totalReceivedChunks = 0;
+let lastReceiverProgressTime = Date.now();
+let lastReceiverProgressBytes = 0;
 
 // Receiver: Process incoming chunk (no ACK needed - using bufferedAmount backpressure)
 function handleReceivedChunk(
@@ -522,8 +591,7 @@ function handleReceivedChunk(
 ) {
 	const { fileStreamsByName, filesMetadata } = useReceiverStore.getState();
 
-	const { setBytesDownloaded, setStatus, setFileProgress } =
-		useReceiverStore.getState().actions;
+	const receiverActions = useReceiverStore.getState().actions;
 
 	const targetFileStream = fileStreamsByName[chunkPayload.fileName];
 
@@ -547,7 +615,25 @@ function handleReceivedChunk(
 	// 	`Received chunk for file: ${chunkPayload.fileName} (${chunkPayload.offset} - ${chunkEndOffset}, final: ${chunkPayload.final})`,
 	// );
 	totalReceivedChunks = totalReceivedChunks + chunkSize;
-	setBytesDownloaded(chunkSize);
+	receiverActions.setBytesDownloaded(chunkSize);
+
+	// Calculate and update transfer stats
+	const now = Date.now();
+	const timeDiffSeconds = (now - lastReceiverProgressTime) / 1000;
+	if (timeDiffSeconds >= 1) {
+		// Update stats every second
+		const totalSize = filesMetadata.reduce((sum, f) => sum + f.size, 0);
+		const { speed, eta } = calculateTransferStats(
+			totalReceivedChunks,
+			totalSize,
+			lastReceiverProgressBytes,
+			timeDiffSeconds,
+		);
+		receiverActions.setTransferSpeed(speed);
+		receiverActions.setEstimatedTimeRemaining(eta);
+		lastReceiverProgressTime = now;
+		lastReceiverProgressBytes = totalReceivedChunks;
+	}
 
 	// Update per-file progress
 	const fileMetadata = filesMetadata.find(
@@ -555,7 +641,7 @@ function handleReceivedChunk(
 	);
 	if (fileMetadata) {
 		const fileProgress = chunkEndOffset / fileMetadata.size;
-		setFileProgress(chunkPayload.fileName, fileProgress);
+		receiverActions.setFileProgress(chunkPayload.fileName, fileProgress);
 	}
 
 	// Push chunk data into the download stream
@@ -583,7 +669,7 @@ function handleReceivedChunk(
 		const { currentFileIndex: idxAfter, filesMetadata: metaAfter } =
 			useReceiverStore.getState();
 		if (idxAfter >= metaAfter.length) {
-			setStatus(ReceiverStatus.RECEIVING_FILE); // will become completed when DONE message arrives
+			receiverActions.setStatus(ReceiverStatus.RECEIVING_FILE); // will become completed when DONE message arrives
 		}
 	}
 }

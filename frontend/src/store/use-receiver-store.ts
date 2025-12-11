@@ -36,6 +36,8 @@ type State = {
 	roomId: string | null;
 	status: ReceiverStatus;
 	error: string | null;
+	transferSpeed: string;
+	estimatedTimeRemaining: string;
 };
 
 type Actions = {
@@ -48,6 +50,8 @@ type Actions = {
 		setRoomId: (roomId: string) => void;
 		setStatus: (status: ReceiverStatus) => void;
 		setError: (error: string | null) => void;
+		setTransferSpeed: (speed: string) => void;
+		setEstimatedTimeRemaining: (eta: string) => void;
 		clearError: () => void;
 		reset: () => void;
 	};
@@ -62,6 +66,8 @@ const initialState: State = {
 	roomId: null,
 	status: ReceiverStatus.IDLE,
 	error: null,
+	transferSpeed: "0 B/s",
+	estimatedTimeRemaining: "--",
 };
 
 const useReceiverStoreBase = create<State & Actions>()((set) => ({
@@ -91,6 +97,8 @@ const useReceiverStoreBase = create<State & Actions>()((set) => ({
 				error,
 				status: error ? ReceiverStatus.ERROR : ReceiverStatus.IDLE,
 			}),
+		setTransferSpeed: (speed) => set({ transferSpeed: speed }),
+		setEstimatedTimeRemaining: (eta) => set({ estimatedTimeRemaining: eta }),
 		clearError: () => set({ error: null, status: ReceiverStatus.IDLE }),
 		reset: () => set(initialState),
 	},
