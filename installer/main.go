@@ -46,7 +46,7 @@ func main() {
 		}
 	})
 
-	port := ":8080"
+	port := ":8000"
 	log.Printf("Starting installer service on http://localhost%s", port)
 	log.Fatal(http.ListenAndServe(port, nil))
 }
