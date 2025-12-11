@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"embed"
 	"log"
 	"net/http"
@@ -32,6 +33,9 @@ func main() {
 			http.Error(w, "Script not found", http.StatusNotFound)
 			return
 		}
+
+		// Normalize line endings to LF (remove Windows CRLF)
+		script = bytes.ReplaceAll(script, []byte("\r\n"), []byte("\n"))
 
 		// Set appropriate headers
 		w.Header().Set("Content-Type", "text/x-sh; charset=utf-8")
