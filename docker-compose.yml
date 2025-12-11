@@ -74,12 +74,30 @@ services:
       - "5349:5349/udp"
     volumes:
       - ./deploy/turnserver.conf:/etc/coturn/turnserver.conf:ro
+      - coturn_certs:/etc/coturn/certs:ro
     restart: unless-stopped
     networks:
       - web
     environment:
       - DETECT_EXTERNAL_IP=yes
       - DETECT_RELAY_IP=yes
+    depends_on:
+      - traefik-certs-dumper
+
+  traefik-certs-dumper:
+    image: ldez/traefik-certs-dumper:latest
+    entrypoint: sh -c '
+      apk add jq;
+      while ! [ -e /data/acme.json ] || ! [ -s /data/acme.json ]; do
+      sleep 5;
+      done;
+      traefik-certs-dumper file --version v2 --source /data/acme.json --dest /certs --domain-subdir=true --watch'
+    volumes:
+      - traefik_letsencrypt:/data:ro
+      - coturn_certs:/certs
+    restart: unless-stopped
+    networks:
+      - web
 
   traefik:
     image: traefik:v3.6
@@ -112,4 +130,6 @@ networks:
 
 volumes:
   traefik_letsencrypt:
+    external: false
+  coturn_certs:
     external: false
