@@ -505,24 +505,25 @@ install_file_cygwin() {
 #                 20 = curl/wget not found
 #-------------------------------------------------------------------------------
 get_latest_version() {
-  local api_url
+  local api_url="https://api.github.com/repos/BioHazard786/Warpdrop/releases/latest"
+  local response
   local version
-  local rcode
 
-  api_url="https://api.github.com/repos/BioHazard786/Warpdrop/releases/latest"
-
+  # 1. Fetch the response content first
   if command -v curl >/dev/null 2>&1; then
-    version="$(curl -fsSL "${api_url}" 2>/dev/null | grep -o '"tag_name":"[^"]*' | cut -d'"' -f4 | sed 's/^v//')"
-    rcode="${?}"
+    response="$(curl -fsSL "${api_url}" 2>/dev/null)"
   elif command -v wget >/dev/null 2>&1; then
-    version="$(wget -qO- "${api_url}" 2>/dev/null | grep -o '"tag_name":"[^"]*' | cut -d'"' -f4 | sed 's/^v//')"
-    rcode="${?}"
+    response="$(wget -qO- "${api_url}" 2>/dev/null)"
   else
-    return 20
+    return 20 # Missing dependencies
   fi
 
+  # 2. Parse with robust regex (handles optional spaces)
+  # Logic: Find "tag_name", allow optional spaces/colon, capture content inside quotes
+  version="$(echo "${response}" | grep -o '"tag_name":[[:space:]]*"[^"]*"' | cut -d'"' -f4 | sed 's/^v//')"
+
   if [[ -z "${version}" ]]; then
-    return 1
+    return 1 # Failed to find version
   fi
 
   echo "${version}"
@@ -570,8 +571,8 @@ main() {
   if [[ $? -eq 0 ]]; then
     print_message "== Latest version detected: ${warpdrop_version}" "ok"
   else
-    print_message "== Failed to fetch latest version from GitHub, falling back to v0.0.1" "warn"
-    warpdrop_version="0.0.1"
+    print_message "== Failed to fetch latest version from GitHub, falling back to v0.0.2" "warn"
+    warpdrop_version="0.0.2"
   fi
   
   print_message "== Install prefix set to ${prefix}" "info"
