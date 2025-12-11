@@ -56,7 +56,6 @@ func sendFiles(filePaths []string) error {
 
 	fileInfos, err := files.ValidateFiles(filePaths)
 	if err != nil {
-		fmt.Errorf("file validation error: %w", err)
 		return err
 	}
 	stopFileSpinner()

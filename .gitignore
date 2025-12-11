@@ -102,6 +102,7 @@ backend/.air.toml
 
 # Binaries for programs and plugins
 cli/*.exe
+cli/dist/*
 
 # Test binary, built with `go test -c`
 cli/*.test

@@ -8,12 +8,19 @@
 
 version: 2
 
+# Use the git tag as the snapshot version (drops the -SNAPSHOT suffix)
+snapshot:
+  version_template: "{{ .Tag }}"
+
+# Where to put build outputs
+dist: ./cli/dist
+
 before:
   hooks:
     # You may remove this if you don't use go modules.
-    - go mod tidy
+    - sh -c "cd cli && go mod tidy"
     # you may remove this if you don't need go generate
-    - go generate ./...
+    - sh -c "cd cli && go generate ./..."
 
 builds:
   - env:
@@ -22,6 +29,11 @@ builds:
       - linux
       - windows
       - darwin
+    ldflags:
+      - -s -w -X github.com/BioHazard786/Warpdrop/cli/internal/version.Version={{ .Version }}
+    main: .
+    dir: cli
+    binary: warpdrop
 
 archives:
   - formats: [tar.gz]

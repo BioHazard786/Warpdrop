@@ -4,10 +4,12 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/BioHazard786/Warpdrop/cli/internal/config"
 	"github.com/BioHazard786/Warpdrop/cli/internal/ui"
+	"github.com/BioHazard786/Warpdrop/cli/internal/version"
 	"github.com/pion/webrtc/v4"
 	"github.com/vmihailenco/msgpack/v5"
 )
@@ -83,7 +85,7 @@ func (r *ReceiverSession) sendDeviceInfo() {
 		Type: MessageTypeDeviceInfo,
 		Payload: DeviceInfoPayload{
 			DeviceName:    "CLI",
-			DeviceVersion: "0.0.1",
+			DeviceVersion: strings.TrimPrefix(version.Version, "v"),
 		},
 	}
 	data, err := msgpack.Marshal(deviceInfo)
