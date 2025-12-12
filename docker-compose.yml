@@ -73,66 +73,32 @@ services:
       - "5349:5349/tcp"
       - "5349:5349/udp"
     volumes:
-      - ./deploy/turnserver.conf:/etc/coturn/turnserver.conf:ro
-      - coturn_certs:/etc/coturn/certs:ro
+      - ./deploy/turnserver.conf:/etc/coturn/turnserver.conf
+      - coturn_certs:/etc/coturn/certs
     restart: unless-stopped
     networks:
       - web
     environment:
-      - DOMAIN=${DOMAIN}
       - DETECT_EXTERNAL_IP=yes
       - DETECT_RELAY_IP=yes
-    entrypoint:
-      - /bin/sh
-      - -c
-      - |
-        echo "Waiting for certificates for $${DOMAIN}..."
-
-        # Loop 2 seconds until both files exist
-        while [ ! -f /etc/coturn/certs/$${DOMAIN}/certificate.crt ] || [ ! -f /etc/coturn/certs/$${DOMAIN}/privatekey.key ]; do
-          sleep 2
-        done
-
-        echo "Certificates found! Fixing permissions..."
-        # Coturn requires the private key to be readable only by the owner (600)
-        chmod 600 /etc/coturn/certs/$${DOMAIN}/privatekey.key
-
-        echo "Starting Coturn..."
-        # Hand over control to the official startup script
-        exec docker-entrypoint.sh "$@"
     depends_on:
       traefik-certs-dumper:
         condition: service_started
 
   traefik-certs-dumper:
     image: ldez/traefik-certs-dumper:latest
-    entrypoint:
-      - /bin/sh
-      - -c
-      # The pipe (|) tells YAML to preserve the newlines in the script below
-      - |
-        apk add jq
-
-        # Wait until acme.json exists and is not empty
-        while [ ! -f /data/acme.json ] || [ ! -s /data/acme.json ]; do
-          sleep 1
-        done
-
-        # Start the dumper
-        traefik-certs-dumper file \
-          --version v2 \
-          --watch \
-          --source /data/acme.json \
-          --dest /app/certs \
-          --domain-subdir=true \
-          --crt-name=certificate \
-          --key-name=privatekey
+    entrypoint: sh -c '
+      while ! [ -e /data/acme.json ]
+      || ! [ `jq ".[] | .Certificates | length" /data/acme.json | jq -s "add" ` != 0 ]; do
+      sleep 1
+      ; done
+      && traefik-certs-dumper file --version v3 --source /data/acme.json --dest /certs --domain-subdir=true --crt-name=certificate --key-name=privatekey --watch'
     volumes:
-      - traefik_letsencrypt:/data:ro
-      - coturn_certs:/app/certs:rw
+      - traefik_letsencrypt:/data
+      - coturn_certs:/certs
+    restart: unless-stopped
     networks:
       - web
-    restart: unless-stopped
 
   traefik:
     image: traefik:v3.6
