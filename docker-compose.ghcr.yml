@@ -84,20 +84,13 @@ services:
   certs-dumper:
     image: ldez/traefik-certs-dumper:latest
     entrypoint: sh -c '
-      umask 022;
-      while true; do
-      if [ -e /data/acme.json ] && [ "$(jq -r "to_entries | map(.value.Certificates | length) | add" /data/acme.json 2>/dev/null)" != "0" ]; then
-      break;
-      fi;
-      sleep 2;
-      done;
-      traefik-certs-dumper file --version v3 --source /data/acme.json --dest /certs --domain-subdir=true --crt-name=certificate --key-name=privatekey --watch &
-      while true; do
-      for f in /certs/*/certificate.crt /certs/*/privatekey.key; do
-      if [ -f "$f" ]; then chmod 644 "$f"; fi;
-      done;
-      sleep 2;
-      done'
+      echo "[$(date "+%Y-%m-%d %H:%M:%S")] Waiting for acme.json and certificates...";
+      while ! [ -e /data/acme.json ]
+      || ! [ `jq ".[] | .Certificates | length" /data/acme.json | jq -s "add"` != 0 ]; do
+      sleep 1
+      ; done
+      && echo "[$(date "+%Y-%m-%d %H:%M:%S")] Certificates found! Starting traefik-certs-dumper in watch mode..."
+      && traefik-certs-dumper file --version v3 --source /data/acme.json --dest /certs --domain-subdir=true --watch --post-hook "sh chmod 644 /certs/${DOMAIN}/privatekey.key && echo \"[$(date \"+%Y-%m-%d %H:%M:%S\")] Permissions updated for privatekey.key\""'
     healthcheck:
       test:
         [
