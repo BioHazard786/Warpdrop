@@ -82,17 +82,34 @@ services:
       - DETECT_EXTERNAL_IP=yes
       - DETECT_RELAY_IP=yes
     depends_on:
-      traefik-certs-dumper:
-        condition: service_started
+      certs-dumper:
+        condition: service_healthy
 
-  traefik-certs-dumper:
+  certs-dumper:
     image: ldez/traefik-certs-dumper:latest
     entrypoint: sh -c '
-      while ! [ -e /data/acme.json ]
+      umask 022;
+      while ! [ -e /data/acme.json ] \
       || ! [ `jq ".[] | .Certificates | length" /data/acme.json | jq -s "add" ` != 0 ]; do
-      sleep 1
-      ; done
-      && traefik-certs-dumper file --version v3 --source /data/acme.json --dest /certs --domain-subdir=true --crt-name=certificate --key-name=privatekey --watch'
+      sleep 1;
+      done;
+      traefik-certs-dumper file --version v3 --source /data/acme.json --dest /certs --domain-subdir=true --watch &
+      while true; do
+      find /certs -type f -name "certificate.crt" -exec chmod 644 {} \; ;
+      find /certs -type f -name "privatekey.key" -exec chmod 644 {} \; ;
+      sleep 2;
+      done'
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "sh",
+          "-c",
+          "[ -r /certs/${DOMAIN}/certificate.crt ] && [ -r /certs/${DOMAIN}/privatekey.key ]",
+        ]
+      interval: 5s
+      timeout: 3s
+      retries: 5
     volumes:
       - traefik_letsencrypt:/data
       - coturn_certs:/certs
@@ -101,7 +118,7 @@ services:
       - web
 
   traefik:
-    image: traefik:v3.6
+    image: traefik:latest
     command:
       - "--api.dashboard=true"
       - "--providers.docker=true"

@@ -63,32 +63,14 @@ services:
 
   coturn:
     image: coturn/coturn:latest
-    entrypoint: ["/bin/sh", "-c"]
-    command:
-      - |
-        echo "Verifying TLS certificates are readable..."
-        max_attempts=60
-        attempt=0
-        while [ $$attempt -lt $$max_attempts ]; do
-          if [ -r /etc/coturn/certs/warpdrop.qzz.io/certificate.crt ] && [ -r /etc/coturn/certs/warpdrop.qzz.io/privatekey.key ]; then
-            echo "Certificates verified and readable!"
-            sleep 2
-            exec turnserver -c /etc/coturn/turnserver.conf
-          fi
-          echo "Waiting for certificates... (attempt $$attempt/$$max_attempts)"
-          attempt=$$((attempt + 1))
-          sleep 1
-        done
-        echo "ERROR: Certificates not found after $$max_attempts attempts"
-        exit 1
     ports:
       - "3478:3478/tcp"
       - "3478:3478/udp"
       - "5349:5349/tcp"
       - "5349:5349/udp"
     volumes:
-      - ./deploy/turnserver.conf:/etc/coturn/turnserver.conf:ro
-      - coturn_certs:/etc/coturn/certs:ro
+      - ./deploy/turnserver.conf:/etc/coturn/turnserver.conf
+      - coturn_certs:/etc/coturn/certs
     restart: unless-stopped
     networks:
       - web
@@ -96,32 +78,43 @@ services:
       - DETECT_EXTERNAL_IP=yes
       - DETECT_RELAY_IP=yes
     depends_on:
-      traefik-certs-dumper:
+      certs-dumper:
         condition: service_healthy
 
-  traefik-certs-dumper:
+  certs-dumper:
     image: ldez/traefik-certs-dumper:latest
     entrypoint: sh -c '
-      apk add jq;
-      while ! [ -e /data/acme.json ] || ! [ -s /data/acme.json ]; do
-      sleep 5;
+      umask 022;
+      while ! [ -e /data/acme.json ] \
+      || ! [ `jq ".[] | .Certificates | length" /data/acme.json | jq -s "add" ` != 0 ]; do
+      sleep 1;
       done;
-      traefik-certs-dumper file --version v2 --source /data/acme.json --dest /certs --domain-subdir=true --crt-name=certificate --key-name=privatekey --watch'
-    volumes:
-      - traefik_letsencrypt:/data:ro
-      - coturn_certs:/certs
+      traefik-certs-dumper file --version v3 --source /data/acme.json --dest /certs --domain-subdir=true --watch &
+      while true; do
+      find /certs -type f -name "certificate.crt" -exec chmod 644 {} \; ;
+      find /certs -type f -name "privatekey.key" -exec chmod 644 {} \; ;
+      sleep 2;
+      done'
     healthcheck:
-      test: ["CMD", "test", "-f", "/certs/warpdrop.qzz.io/privatekey.key"]
+      test:
+        [
+          "CMD",
+          "sh",
+          "-c",
+          "[ -r /certs/${DOMAIN}/certificate.crt ] && [ -r /certs/${DOMAIN}/privatekey.key ]",
+        ]
       interval: 5s
-      timeout: 5s
-      retries: 60
-      start_period: 10s
+      timeout: 3s
+      retries: 5
+    volumes:
+      - traefik_letsencrypt:/data
+      - coturn_certs:/certs
     restart: unless-stopped
     networks:
       - web
 
   traefik:
-    image: traefik:v3.6
+    image: traefik:latest
     command:
       - "--api.dashboard=true"
       - "--providers.docker=true"
