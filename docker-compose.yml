@@ -94,7 +94,7 @@ services:
       sleep 1
       ; done
       && echo "[$(date "+%Y-%m-%d %H:%M:%S")] Certificates found! Starting traefik-certs-dumper in watch mode..."
-      && traefik-certs-dumper file --version v3 --source /data/acme.json --dest /certs --domain-subdir=true --watch --post-hook "sh chmod 644 /certs/${DOMAIN}/privatekey.key && echo \"[$(date \"+%Y-%m-%d %H:%M:%S\")] Permissions updated for privatekey.key\""'
+      && traefik-certs-dumper file --version v3 --source /data/acme.json --dest /certs --domain-subdir=true --watch --post-hook "sh /hook.sh"'
     healthcheck:
       test:
         [
@@ -109,6 +109,7 @@ services:
     volumes:
       - traefik_letsencrypt:/data
       - coturn_certs:/certs
+      - ./deploy/certs-dumper-hook.sh:/hook.sh:ro
     restart: unless-stopped
     networks:
       - web
