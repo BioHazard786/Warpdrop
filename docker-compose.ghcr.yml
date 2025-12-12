@@ -85,14 +85,17 @@ services:
     image: ldez/traefik-certs-dumper:latest
     entrypoint: sh -c '
       umask 022;
-      while ! [ -e /data/acme.json ] \
-      || ! [ `jq ".[] | .Certificates | length" /data/acme.json | jq -s "add" ` != 0 ]; do
-      sleep 1;
-      done;
-      traefik-certs-dumper file --version v3 --source /data/acme.json --dest /certs --domain-subdir=true --watch &
       while true; do
-      find /certs -type f -name "certificate.crt" -exec chmod 644 {} \; ;
-      find /certs -type f -name "privatekey.key" -exec chmod 644 {} \; ;
+      if [ -e /data/acme.json ] && [ "$(jq -r "to_entries | map(.value.Certificates | length) | add" /data/acme.json 2>/dev/null)" != "0" ]; then
+      break;
+      fi;
+      sleep 2;
+      done;
+      traefik-certs-dumper file --version v3 --source /data/acme.json --dest /certs --domain-subdir=true --crt-name=certificate --key-name=privatekey --watch &
+      while true; do
+      for f in /certs/*/certificate.crt /certs/*/privatekey.key; do
+      if [ -f "$f" ]; then chmod 644 "$f"; fi;
+      done;
       sleep 2;
       done'
     healthcheck:

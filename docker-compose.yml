@@ -89,15 +89,22 @@ services:
     image: ldez/traefik-certs-dumper:latest
     entrypoint: sh -c '
       umask 022;
-      while ! [ -e /data/acme.json ] \
-      || ! [ `jq ".[] | .Certificates | length" /data/acme.json | jq -s "add" ` != 0 ]; do
-      sleep 1;
-      done;
-      traefik-certs-dumper file --version v3 --source /data/acme.json --dest /certs --domain-subdir=true --watch &
+      echo "[$(date "+%Y-%m-%d %H:%M:%S")] Waiting for acme.json and certificates...";
+      while ! [ -e /data/acme.json ]
+      || ! [ `jq ".[] | .Certificates | length" /data/acme.json | jq -s "add"` != 0 ]; do
+      sleep 1
+      ; done
+      && echo "[$(date "+%Y-%m-%d %H:%M:%S")] Certificates found! Starting traefik-certs-dumper in watch mode..."
+      && traefik-certs-dumper file --version v3 --source /data/acme.json --dest /certs --domain-subdir=true --watch &
+      echo "[$(date "+%Y-%m-%d %H:%M:%S")] Starting permission monitoring loop...";
       while true; do
-      find /certs -type f -name "certificate.crt" -exec chmod 644 {} \; ;
-      find /certs -type f -name "privatekey.key" -exec chmod 644 {} \; ;
-      sleep 2;
+      if [ -f "/certs/${DOMAIN}/privatekey.key" ]; then
+      chmod 644 "/certs/${DOMAIN}/privatekey.key";
+      echo "[$(date "+%Y-%m-%d %H:%M:%S")] Updated permissions for /certs/${DOMAIN}/privatekey.key";
+      else
+      echo "[$(date "+%Y-%m-%d %H:%M:%S")] Waiting for /certs/${DOMAIN}/privatekey.key to be created...";
+      fi;
+      sleep 1;
       done'
     healthcheck:
       test:
