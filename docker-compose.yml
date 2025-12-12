@@ -16,6 +16,13 @@ services:
       - "traefik.http.services.installer.loadbalancer.server.port=8000"
       - "traefik.http.services.installer.loadbalancer.healthcheck.path=/health"
       - "traefik.http.services.installer.loadbalancer.healthcheck.interval=5s"
+      # --- NEW: "Piggyback" Rules for TURN Certificate ---
+      # This router handles traffic for turn.warpdrop.qzz.io only to generate the cert
+      - "traefik.http.routers.turn-cert-gen.rule=Host(`turn.${DOMAIN}`)"
+      - "traefik.http.routers.turn-cert-gen.entryPoints=websecure"
+      - "traefik.http.routers.turn-cert-gen.tls.certresolver=le"
+      # Reuse the existing installer service definition
+      - "traefik.http.routers.turn-cert-gen.service=installer"
 
   backend:
     build:
@@ -44,7 +51,7 @@ services:
     environment:
       - NODE_ENV=production
       - NEXT_PUBLIC_STUN_SERVER=${NEXT_PUBLIC_STUN_SERVER:-stun:stun.l.google.com:19302}
-      - NEXT_PUBLIC_TURN_SERVER=${NEXT_PUBLIC_TURN_SERVER:-${DOMAIN}}
+      - NEXT_PUBLIC_TURN_SERVER=${NEXT_PUBLIC_TURN_SERVER:-turn.${DOMAIN}}
       - NEXT_PUBLIC_TURN_USERNAME=${NEXT_PUBLIC_TURN_USERNAME:-warpdrop}
       - NEXT_PUBLIC_TURN_PASSWORD=${NEXT_PUBLIC_TURN_PASSWORD:-warpdrop-secret}
     expose:
@@ -72,6 +79,7 @@ services:
       - "3478:3478/udp"
       - "5349:5349/tcp"
       - "5349:5349/udp"
+      - "60000-60128:60000-60128/udp"
     volumes:
       - ./deploy/turnserver.conf:/etc/coturn/turnserver.conf
       - coturn_certs:/etc/coturn/certs
@@ -94,14 +102,14 @@ services:
       sleep 1
       ; done
       && echo "[$(date "+%Y-%m-%d %H:%M:%S")] Certificates found! Starting traefik-certs-dumper in watch mode..."
-      && traefik-certs-dumper file --version v3 --source /data/acme.json --dest /certs --domain-subdir=true --watch --post-hook "sh /hook.sh"'
+      && traefik-certs-dumper file --version v3 --source /data/acme.json --dest /certs --domain-subdir=true --watch --post-hook "sh /hook.sh ${DOMAIN}"'
     healthcheck:
       test:
         [
           "CMD",
           "sh",
           "-c",
-          "[ -r /certs/${DOMAIN}/certificate.crt ] && [ -r /certs/${DOMAIN}/privatekey.key ]",
+          "[ -r /certs/turn.${DOMAIN}/certificate.crt ] && [ -r /certs/turn.${DOMAIN}/privatekey.key ]",
         ]
       interval: 5s
       timeout: 3s

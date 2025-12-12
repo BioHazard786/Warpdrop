@@ -1,6 +1,7 @@
 package multichannel
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -90,6 +91,23 @@ func (s *SenderSession) Start(fileInfos []*files.FileInfo) error {
 		}
 	}
 
+	// Setup ICE candidate handler for trickle ICE
+	s.Peer.Connection.OnICECandidate(func(c *webrtc.ICECandidate) {
+		if c == nil {
+			return
+		}
+		candidateBytes, _ := json.Marshal(c.ToJSON())
+		var candidateMap map[string]any
+		_ = json.Unmarshal(candidateBytes, &candidateMap)
+		s.SignalingClient.SendMessage(&signaling.Message{
+			Type:    signaling.MessageTypeSignal,
+			Payload: signaling.SignalPayload{ICECandidate: candidateMap},
+		})
+	})
+
+	// Start signal listener for incoming ICE candidates and answer
+	go s.listenForSignals()
+
 	// Step 3: Create and send WebRTC offer
 	offer, err := s.Peer.CreateOffer()
 	if err != nil {
@@ -105,19 +123,7 @@ func (s *SenderSession) Start(fileInfos []*files.FileInfo) error {
 		},
 	})
 
-	// Step 4: Wait for answer from receiver
-	select {
-	case signalPayload := <-s.Handler.Signal:
-		stopSpinner()
-		if err := s.Peer.HandleSignal(signalPayload); err != nil {
-			return fmt.Errorf("failed to handle signal: %w", err)
-		}
-
-	case errMsg := <-s.Handler.Error:
-		stopSpinner()
-		return fmt.Errorf("signaling error: %s", errMsg)
-	}
-
+	stopSpinner()
 	return nil
 }
 
@@ -224,45 +230,78 @@ func (p *SenderPeer) CreateFileChannel(fileInfo *files.FileInfo, index int) erro
 	return nil
 }
 
-// CreateOffer creates WebRTC offer
+// CreateOffer creates WebRTC offer with trickle ICE (doesn't wait for gathering)
 func (p *SenderPeer) CreateOffer() (*webrtc.SessionDescription, error) {
 	offer, err := p.Connection.CreateOffer(nil)
 	if err != nil {
 		return nil, err
 	}
 
-	gatherDone := webrtc.GatheringCompletePromise(p.Connection)
-
 	if err = p.Connection.SetLocalDescription(offer); err != nil {
 		return nil, err
 	}
 
-	<-gatherDone
+	// Return immediately - ICE candidates will be sent via OnICECandidate handler
 	return p.Connection.LocalDescription(), nil
 }
 
-// HandleSignal processes incoming signaling messages
+// HandleSignal processes incoming signaling messages (SDP and ICE candidates)
 func (p *SenderPeer) HandleSignal(payload *signaling.SignalPayload) error {
-	var sdpType webrtc.SDPType
-	switch payload.Type {
-	case "offer":
-		sdpType = webrtc.SDPTypeOffer
-	case "answer":
-		sdpType = webrtc.SDPTypeAnswer
-	default:
-		return fmt.Errorf("unexpected signal type: %s", payload.Type)
+	// Handle SDP answer
+	if payload.SDP != "" {
+		var sdpType webrtc.SDPType
+		switch payload.Type {
+		case "offer":
+			sdpType = webrtc.SDPTypeOffer
+		case "answer":
+			sdpType = webrtc.SDPTypeAnswer
+		default:
+			return fmt.Errorf("unexpected signal type: %s", payload.Type)
+		}
+
+		desc := webrtc.SessionDescription{
+			Type: sdpType,
+			SDP:  payload.SDP,
+		}
+
+		if desc.Type == webrtc.SDPTypeAnswer {
+			return p.Connection.SetRemoteDescription(desc)
+		}
+
+		return fmt.Errorf("unexpected signal type: %s", desc.Type)
 	}
 
-	desc := webrtc.SessionDescription{
-		Type: sdpType,
-		SDP:  payload.SDP,
+	// Handle ICE candidate
+	if payload.ICECandidate != nil {
+		candidateBytes, _ := json.Marshal(payload.ICECandidate)
+		var ice webrtc.ICECandidateInit
+		if err := json.Unmarshal(candidateBytes, &ice); err != nil {
+			return fmt.Errorf("failed to parse ICE candidate: %w", err)
+		}
+		if err := p.Connection.AddICECandidate(ice); err != nil {
+			return fmt.Errorf("failed to add ICE candidate: %w", err)
+		}
 	}
 
-	if desc.Type == webrtc.SDPTypeAnswer {
-		return p.Connection.SetRemoteDescription(desc)
-	}
+	return nil
+}
 
-	return fmt.Errorf("unexpected signal type: %s", desc.Type)
+// listenForSignals handles incoming signaling messages (ICE candidates and answer)
+func (s *SenderSession) listenForSignals() {
+	for {
+		select {
+		case sig := <-s.Handler.Signal:
+			if sig == nil {
+				continue
+			}
+			if err := s.Peer.HandleSignal(sig); err != nil {
+				fmt.Printf("⚠️  Signal handling error: %v\n", err)
+			}
+
+		case <-s.Peer.done:
+			return
+		}
+	}
 }
 
 // Transfer waits for ready signal and sends all files

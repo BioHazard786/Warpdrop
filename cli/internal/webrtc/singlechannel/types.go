@@ -91,13 +91,13 @@ type SenderPeer struct {
 
 // ReceiverSession manages receiving files using single channel
 type ReceiverSession struct {
-	PeerConnection *webrtc.PeerConnection
-	DataChannel    *webrtc.DataChannel
+	PeerConnection  *webrtc.PeerConnection
+	DataChannel     *webrtc.DataChannel
+	SignalingClient *signaling.Client // For sending ICE candidates
 
 	FilesMetadata []FileMetadata
 	metadataReady chan struct{}
 	done          chan struct{}
-	gatherDone    <-chan struct{}
 
 	// Current file state
 	currentFile   *os.File

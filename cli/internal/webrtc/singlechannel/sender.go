@@ -195,20 +195,18 @@ func (p *SenderPeer) sendMetadata() {
 	}
 }
 
-// CreateOffer creates WebRTC offer
+// CreateOffer creates WebRTC offer with trickle ICE (doesn't wait for gathering)
 func (p *SenderPeer) CreateOffer() (*webrtc.SessionDescription, error) {
 	offer, err := p.Connection.CreateOffer(nil)
 	if err != nil {
 		return nil, err
 	}
 
-	gatherDone := webrtc.GatheringCompletePromise(p.Connection)
-
 	if err = p.Connection.SetLocalDescription(offer); err != nil {
 		return nil, err
 	}
 
-	<-gatherDone
+	// Return immediately - ICE candidates will be sent via OnICECandidate handler
 	return p.Connection.LocalDescription(), nil
 }
 

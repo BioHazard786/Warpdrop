@@ -9,7 +9,7 @@ import (
 const (
 	DefaultDomain   = "warpdrop.qzz.io"
 	DefaultSTUN     = "stun:stun.l.google.com:19302"
-	DefaultTURN     = "warpdrop.qzz.io" // TURN server hostname
+	DefaultTURN     = "turn.warpdrop.qzz.io" // TURN server hostname
 	DefaultTURNUser = "warpdrop"
 	DefaultTURNPass = "warpdrop-secret"
 )

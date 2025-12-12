@@ -129,7 +129,7 @@ func receiveFiles(roomID string) error {
 			return fmt.Errorf("signaling error: %s", errMsg)
 		}
 
-		receiverSession, err := multichannel.NewReceiverSession(cfg)
+		receiverSession, err := multichannel.NewReceiverSession(cfg, client)
 		if err != nil {
 			return fmt.Errorf("failed to create receiver session: %w", err)
 		}
@@ -147,6 +147,15 @@ func receiveFiles(roomID string) error {
 				SDP:  answer.SDP,
 			},
 		})
+
+		// Start listening for incoming ICE candidates from sender
+		go func() {
+			for sig := range handler.Signal {
+				if sig != nil && sig.ICECandidate != nil {
+					_ = receiverSession.HandleICECandidate(sig.ICECandidate)
+				}
+			}
+		}()
 
 		receiverSession.WaitForMetadata()
 
@@ -200,7 +209,7 @@ func receiveFiles(roomID string) error {
 			}
 		}
 
-		singleSession, err := singlechannel.NewReceiverSession(cfg)
+		singleSession, err := singlechannel.NewReceiverSession(cfg, client)
 		if err != nil {
 			return fmt.Errorf("failed to create receiver session: %w", err)
 		}
@@ -216,6 +225,15 @@ func receiveFiles(roomID string) error {
 			Type:    signaling.MessageTypeSignal,
 			Payload: signaling.SignalPayload{Type: answer.Type.String(), SDP: answer.SDP},
 		})
+
+		// Start listening for incoming ICE candidates from sender
+		go func() {
+			for sig := range handler.Signal {
+				if sig != nil && sig.ICECandidate != nil {
+					_ = singleSession.HandleICECandidate(sig.ICECandidate)
+				}
+			}
+		}()
 
 		stopMetaSpinner := ui.RunWaitingSpinner("Waiting for file metadata...")
 

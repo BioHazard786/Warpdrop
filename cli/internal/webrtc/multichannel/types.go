@@ -61,7 +61,8 @@ type FileChannel struct {
 
 // ReceiverSession manages receiving files
 type ReceiverSession struct {
-	PeerConnection *webrtc.PeerConnection
+	PeerConnection  *webrtc.PeerConnection
+	SignalingClient *signaling.Client // For sending ICE candidates
 
 	controlChannel *webrtc.DataChannel // For metadata and control
 	DataChannels   []*ReceiverChannel  // One channel per file
@@ -69,7 +70,6 @@ type ReceiverSession struct {
 	FilesMetadata   []any // FileMetadata slice
 	metadataReady   chan struct{}
 	done            chan struct{}
-	gatherDone      <-chan struct{}
 	globalStartTime int64
 
 	// Bubble Tea progress UI

@@ -45,7 +45,7 @@ func NewHandler(client *Client) *Handler {
 		PeerJoined:  make(chan *PeerInfo, 1),
 		JoinSuccess: make(chan *PeerInfo, 1),
 		PeerLeft:    make(chan struct{}, 1),
-		Signal:      make(chan *SignalPayload, 1),
+		Signal:      make(chan *SignalPayload, 32), // Larger buffer for trickle ICE candidates
 		Error:       make(chan string, 1),
 	}
 }

@@ -1,6 +1,7 @@
 package multichannel
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -9,24 +10,26 @@ import (
 	"time"
 
 	"github.com/BioHazard786/Warpdrop/cli/internal/config"
+	"github.com/BioHazard786/Warpdrop/cli/internal/signaling"
 	"github.com/BioHazard786/Warpdrop/cli/internal/ui"
 	"github.com/pion/webrtc/v4"
 	"github.com/vmihailenco/msgpack/v5"
 )
 
 // NewReceiverSession creates a receiver-side WebRTC session
-func NewReceiverSession(cfg *config.Config) (*ReceiverSession, error) {
+func NewReceiverSession(cfg *config.Config, client *signaling.Client) (*ReceiverSession, error) {
 	pc, err := newPeerConnection(cfg)
 	if err != nil {
 		return nil, err
 	}
 
 	receiver := &ReceiverSession{
-		PeerConnection: pc,
-		DataChannels:   make([]*ReceiverChannel, 0),
-		FilesMetadata:  make([]interface{}, 0),
-		metadataReady:  make(chan struct{}, 1),
-		done:           make(chan struct{}),
+		PeerConnection:  pc,
+		SignalingClient: client,
+		DataChannels:    make([]*ReceiverChannel, 0),
+		FilesMetadata:   make([]interface{}, 0),
+		metadataReady:   make(chan struct{}, 1),
+		done:            make(chan struct{}),
 	}
 
 	receiver.setupHandlers()
@@ -110,25 +113,47 @@ func (r *ReceiverSession) setupControlChannel(dc *webrtc.DataChannel) {
 	})
 }
 
-// CreateAnswer creates WebRTC answer from offer
+// CreateAnswer creates WebRTC answer from offer with trickle ICE
 func (r *ReceiverSession) CreateAnswer(offer *webrtc.SessionDescription) (*webrtc.SessionDescription, error) {
 	if err := r.PeerConnection.SetRemoteDescription(*offer); err != nil {
 		return nil, err
 	}
+
+	// Setup ICE candidate handler for trickle ICE
+	r.PeerConnection.OnICECandidate(func(c *webrtc.ICECandidate) {
+		if c == nil {
+			return
+		}
+		candidateBytes, _ := json.Marshal(c.ToJSON())
+		var candidateMap map[string]any
+		_ = json.Unmarshal(candidateBytes, &candidateMap)
+		r.SignalingClient.SendMessage(&signaling.Message{
+			Type:    signaling.MessageTypeSignal,
+			Payload: signaling.SignalPayload{ICECandidate: candidateMap},
+		})
+	})
 
 	answer, err := r.PeerConnection.CreateAnswer(nil)
 	if err != nil {
 		return nil, err
 	}
 
-	r.gatherDone = webrtc.GatheringCompletePromise(r.PeerConnection)
-
 	if err = r.PeerConnection.SetLocalDescription(answer); err != nil {
 		return nil, err
 	}
 
-	<-r.gatherDone
+	// Return immediately - ICE candidates will be sent via OnICECandidate handler
 	return r.PeerConnection.LocalDescription(), nil
+}
+
+// HandleICECandidate processes an incoming ICE candidate from the sender
+func (r *ReceiverSession) HandleICECandidate(candidateMap map[string]any) error {
+	candidateBytes, _ := json.Marshal(candidateMap)
+	var ice webrtc.ICECandidateInit
+	if err := json.Unmarshal(candidateBytes, &ice); err != nil {
+		return fmt.Errorf("failed to parse ICE candidate: %w", err)
+	}
+	return r.PeerConnection.AddICECandidate(ice)
 }
 
 // WaitForMetadata blocks until file metadata is received from sender
