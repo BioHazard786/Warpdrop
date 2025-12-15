@@ -38,6 +38,13 @@ builds:
       - "386"
       - arm
       - arm64
+    ignore:
+      - goos: darwin
+        goarch: "386"
+      - goos: freebsd
+        goarch: arm
+    goarm:
+      - "7"
     ldflags:
       - -s -w -X github.com/BioHazard786/Warpdrop/cli/internal/version.Version={{ .Version }}
     main: .

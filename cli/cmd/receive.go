@@ -2,7 +2,6 @@ package cmd
 
 import (
 	"fmt"
-	"log"
 	"net/url"
 	"strings"
 
@@ -12,7 +11,6 @@ import (
 	"github.com/BioHazard786/Warpdrop/cli/internal/webrtc"
 	"github.com/BioHazard786/Warpdrop/cli/internal/webrtc/multichannel"
 	"github.com/BioHazard786/Warpdrop/cli/internal/webrtc/singlechannel"
-	pionwebrtc "github.com/pion/webrtc/v4"
 	"github.com/spf13/cobra"
 )
 
@@ -23,6 +21,7 @@ var (
 	flagReceiverTURN     string
 	flagReceiverTURNUser string
 	flagReceiverTURNPass string
+	flagReceiverRelay    bool
 )
 
 // receiveCmd represents the receive command
@@ -60,17 +59,22 @@ func receiveFiles(roomID string) error {
 		TURNServer: flagReceiverTURN,
 		TURNUser:   flagReceiverTURNUser,
 		TURNPass:   flagReceiverTURNPass,
+		ForceRelay: flagReceiverRelay,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
 
+	if cfg.ForceRelay && cfg.GetTURNServers() == nil {
+		return fmt.Errorf("cannot force relay mode without TURN server configured")
+	}
+
 	// Step 2: Connect to signaling server
 	stopSpinner := ui.RunConnectionSpinner("Establishing WebSocket connection...")
+	defer stopSpinner()
 
 	client := signaling.NewClient(cfg.WebSocketURL)
 	if err := client.Connect(); err != nil {
-		stopSpinner()
 		return fmt.Errorf("failed to connect to server: %w", err)
 	}
 	defer client.Close()
@@ -80,198 +84,64 @@ func receiveFiles(roomID string) error {
 	handler := signaling.NewHandler(client)
 	defer handler.Close()
 
+	// Step 4: Start the handler in a goroutine (background)
 	go handler.Start()
 
-	// Step 4: Send join_room message
+	// Step 5: Send join_room message
 	client.SendMessage(&signaling.Message{
 		Type:       signaling.MessageTypeJoinRoom,
 		RoomID:     roomID,
 		ClientType: "cli",
 	})
 
-	// Wait for join success
+	// Step 6: Wait for peer to join
 	var peerInfo *signaling.PeerInfo
 	select {
 	case peerInfo = <-handler.JoinSuccess:
-		log.Printf("Peer info: type=%s", peerInfo.ClientType)
+		fmt.Printf("Peer joined (type: %s)\n", peerInfo.ClientType)
+
 	case errMsg := <-handler.Error:
-		return fmt.Errorf("join error: %s", errMsg)
+		return fmt.Errorf("server error: %s", errMsg)
 	}
 
+	// Step 7: Create WebRTC session and start transfer
 	protocol := webrtc.SelectProtocol(peerInfo.ClientType)
-
-	stopSpinner = ui.RunConnectionSpinner("Establishing WebRTC connection...")
 
 	switch protocol {
 	case webrtc.MultiChannelProtocol:
-		var offer *pionwebrtc.SessionDescription
-		select {
-		case signalPayload := <-handler.Signal:
-			stopSpinner()
-			var sdpType pionwebrtc.SDPType
-			switch signalPayload.Type {
-			case "offer":
-				sdpType = pionwebrtc.SDPTypeOffer
-			case "answer":
-				sdpType = pionwebrtc.SDPTypeAnswer
-			default:
-				stopSpinner()
-				return fmt.Errorf("unexpected signal type: %s", signalPayload.Type)
-			}
-
-			offer = &pionwebrtc.SessionDescription{
-				Type: sdpType,
-				SDP:  signalPayload.SDP,
-			}
-
-		case errMsg := <-handler.Error:
-			stopSpinner()
-			return fmt.Errorf("signaling error: %s", errMsg)
-		}
-
-		receiverSession, err := multichannel.NewReceiverSession(cfg, client)
+		session, err := multichannel.NewReceiverSession(client, handler, cfg, peerInfo)
 		if err != nil {
-			return fmt.Errorf("failed to create receiver session: %w", err)
+			return fmt.Errorf("failed to create WebRTC session: %w", err)
 		}
-		defer receiverSession.Close()
+		defer session.Close()
 
-		answer, err := receiverSession.CreateAnswer(offer)
-		if err != nil {
-			return fmt.Errorf("failed to create answer: %w", err)
-		}
-
-		client.SendMessage(&signaling.Message{
-			Type: signaling.MessageTypeSignal,
-			Payload: signaling.SignalPayload{
-				Type: answer.Type.String(),
-				SDP:  answer.SDP,
-			},
-		})
-
-		// Start listening for incoming ICE candidates from sender
-		go func() {
-			for sig := range handler.Signal {
-				if sig != nil && sig.ICECandidate != nil {
-					_ = receiverSession.HandleICECandidate(sig.ICECandidate)
-				}
-			}
-		}()
-
-		receiverSession.WaitForMetadata()
-
-		// Display files to receive in a table
-		items := make([]ui.FileTableItem, 0, len(receiverSession.FilesMetadata))
-		for i, meta := range receiverSession.FilesMetadata {
-			if fm, ok := meta.(multichannel.FileMetadata); ok {
-				items = append(items, ui.FileTableItem{
-					Index: i + 1,
-					Name:  fm.Name,
-					Size:  int64(fm.Size),
-					Type:  fm.Type,
-				})
-			}
-		}
-		ui.RenderFileTable(items, "📋 Files to receive")
-
-		fmt.Print("\n❓ Do you want to receive these files? [Y/n] ")
-		var consent string
-		fmt.Scanln(&consent)
-
-		if consent == "n" || consent == "N" {
-			if err := receiverSession.SendDecline(); err != nil {
-				return fmt.Errorf("failed to send decline signal: %w", err)
-			}
-			fmt.Println("\n❌ Transfer cancelled by user")
-			return nil
+		if err := session.Start(); err != nil {
+			return fmt.Errorf("failed to start WebRTC connection: %w", err)
 		}
 
-		if err := receiverSession.SendReadyToReceive(); err != nil {
-			return fmt.Errorf("failed to send ready signal: %w", err)
-		}
+		// Set progress callback for UI updates
+		session.SetProgressUI()
 
-		if err := receiverSession.ReceiveAllFiles(); err != nil {
-			return fmt.Errorf("failed to receive files: %w", err)
+		if err := session.Transfer(); err != nil {
+			return fmt.Errorf("failed to transfer files: %w", err)
 		}
 
 	case webrtc.SingleChannelProtocol:
-		var offerPayload *signaling.SignalPayload
-
-		for offerPayload == nil {
-			select {
-			case sig := <-handler.Signal:
-				if sig.SDP != "" && sig.Type == "offer" {
-					offerPayload = sig
-					stopSpinner()
-				}
-			case errMsg := <-handler.Error:
-				stopSpinner()
-				return fmt.Errorf("signaling error: %s", errMsg)
-			}
-		}
-
-		singleSession, err := singlechannel.NewReceiverSession(cfg, client)
+		session, err := singlechannel.NewReceiverSession(client, handler, cfg, peerInfo)
 		if err != nil {
-			return fmt.Errorf("failed to create receiver session: %w", err)
+			return fmt.Errorf("failed to create WebRTC session: %w", err)
 		}
-		defer singleSession.Close()
+		defer session.Close()
 
-		offer := &pionwebrtc.SessionDescription{Type: pionwebrtc.SDPTypeOffer, SDP: offerPayload.SDP}
-		answer, err := singleSession.CreateAnswer(offer)
-		if err != nil {
-			return fmt.Errorf("failed to create answer: %w", err)
+		if err := session.Start(); err != nil {
+			return fmt.Errorf("failed to start WebRTC connection: %w", err)
 		}
 
-		client.SendMessage(&signaling.Message{
-			Type:    signaling.MessageTypeSignal,
-			Payload: signaling.SignalPayload{Type: answer.Type.String(), SDP: answer.SDP},
-		})
+		// Set progress callback for UI updates
+		session.SetProgressUI()
 
-		// Start listening for incoming ICE candidates from sender
-		go func() {
-			for sig := range handler.Signal {
-				if sig != nil && sig.ICECandidate != nil {
-					_ = singleSession.HandleICECandidate(sig.ICECandidate)
-				}
-			}
-		}()
-
-		stopMetaSpinner := ui.RunWaitingSpinner("Waiting for file metadata...")
-
-		singleSession.WaitForMetadata()
-		stopMetaSpinner()
-
-		// Display files to receive in a table
-		items := make([]ui.FileTableItem, len(singleSession.FilesMetadata))
-		for i, meta := range singleSession.FilesMetadata {
-			items[i] = ui.FileTableItem{
-				Index: i + 1,
-				Name:  meta.Name,
-				Size:  int64(meta.Size),
-				Type:  meta.Type,
-			}
-		}
-		ui.RenderFileTable(items, "📋 Files to receive")
-
-		fmt.Print("\n❓ Do you want to receive these files? [Y/n] ")
-		var consent string
-		fmt.Scanln(&consent)
-
-		if consent == "n" || consent == "N" {
-			fmt.Println("\n❌ Transfer cancelled by user")
-			return nil
-		}
-
-		// Setup progress UI
-		fileNames := make([]string, len(singleSession.FilesMetadata))
-		fileSizes := make([]int64, len(singleSession.FilesMetadata))
-		for i, meta := range singleSession.FilesMetadata {
-			fileNames[i] = meta.Name
-			fileSizes[i] = int64(meta.Size)
-		}
-		singleSession.SetProgressUI(fileNames, fileSizes)
-
-		if err := singleSession.ReceiveAllFiles(); err != nil {
-			return fmt.Errorf("failed to receive files: %w", err)
+		if err := session.Transfer(); err != nil {
+			return fmt.Errorf("failed to transfer files: %w", err)
 		}
 
 	default:
@@ -327,4 +197,5 @@ func init() {
 	receiveCmd.Flags().StringVarP(&flagReceiverTURN, "turn", "t", "", "Custom TURN server (optional)")
 	receiveCmd.Flags().StringVarP(&flagReceiverTURNUser, "turn-user", "u", "", "TURN server username")
 	receiveCmd.Flags().StringVarP(&flagReceiverTURNPass, "turn-pass", "p", "", "TURN server password")
+	receiveCmd.Flags().BoolVarP(&flagReceiverRelay, "relay", "r", false, "Force relay mode (use when behind restrictive networks)")
 }

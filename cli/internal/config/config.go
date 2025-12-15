@@ -9,9 +9,9 @@ import (
 const (
 	DefaultDomain   = "warpdrop.qzz.io"
 	DefaultSTUN     = "stun:stun.l.google.com:19302"
-	DefaultTURN     = "turn.warpdrop.qzz.io" // TURN server hostname
-	DefaultTURNUser = "warpdrop"
-	DefaultTURNPass = "warpdrop-secret"
+	DefaultTURN     = "" // TURN server hostname
+	DefaultTURNUser = ""
+	DefaultTURNPass = ""
 )
 
 // Config holds application configuration
@@ -27,6 +27,10 @@ type Config struct {
 	TURNServer string
 	TURNUser   string
 	TURNPass   string
+
+	// ForceRelay forces all connections through TURN relay servers
+	// Use this when behind restrictive networks (e.g., DNS changers like 1.1.1.1)
+	ForceRelay bool
 }
 
 // Options for loading config with CLI flag overrides
@@ -36,6 +40,7 @@ type Options struct {
 	TURNServer string
 	TURNUser   string
 	TURNPass   string
+	ForceRelay bool
 }
 
 // Load reads configuration with the following priority:
@@ -97,6 +102,7 @@ func Load(opts Options) (*Config, error) {
 		TURNServer:   turnServer,
 		TURNUser:     turnUser,
 		TURNPass:     turnPass,
+		ForceRelay:   opts.ForceRelay,
 	}, nil
 }
 

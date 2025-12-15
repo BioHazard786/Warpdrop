@@ -5,6 +5,7 @@ import (
 	"mime"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 // FileInfo holds information about a file to be sent
@@ -100,35 +101,21 @@ func validateSingleFile(path string) (FileInfo, error) {
 		Path:       absPath,
 		Name:       name,
 		Size:       stat.Size(),
-				Type:       mimeType,
+		Type:       mimeType,
 		IsReadable: true,
 	}, nil
 }
 
 // joinErrors joins multiple error messages with newlines
 func joinErrors(errors []string) string {
-	result := ""
+	var result strings.Builder
 	for i, err := range errors {
 		if i > 0 {
-			result += "\n  - "
+			result.WriteString("\n  - ")
 		}
-		result += err
+		result.WriteString(err)
 	}
-	return result
-}
-
-// FormatSize returns a human-readable file size string
-func FormatSize(bytes int64) string {
-	const unit = 1024
-	if bytes < unit {
-		return fmt.Sprintf("%d B", bytes)
-	}
-	div, exp := int64(unit), 0
-	for n := bytes / unit; n >= unit; n /= unit {
-		div *= unit
-		exp++
-	}
-	return fmt.Sprintf("%.1f %cB", float64(bytes)/float64(div), "KMGTPE"[exp])
+	return result.String()
 }
 
 // GetTotalSize returns the total size of all files

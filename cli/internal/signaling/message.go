@@ -25,9 +25,9 @@ const (
 
 // SignalPayload represents the WebRTC signaling data (SDP offer/answer or ICE candidate)
 type SignalPayload struct {
-	Type         string         `json:"type,omitempty"`          // "offer" or "answer"
-	SDP          string         `json:"sdp,omitempty"`           // Session Description Protocol
-	ICECandidate map[string]any `json:"ice_candidate,omitempty"` // ICE candidate data
+	Type         string `json:"type,omitempty"`          // "offer" or "answer"
+	SDP          string `json:"sdp,omitempty"`           // Session Description Protocol
+	ICECandidate any    `json:"ice_candidate,omitempty"` // ICE candidate data
 }
 
 // ErrorPayload represents error messages from server

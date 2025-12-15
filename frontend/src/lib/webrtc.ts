@@ -8,10 +8,11 @@ import { logger } from "@/lib/logger";
 import { type MessageOfType, MessageType, parseMessage } from "@/lib/messages";
 import { calculateTransferStats } from "@/lib/transfer-stats-utils";
 import {
+	calculateDynamicChunkSize,
+	DEFAULT_CHUNK_SIZE,
 	getZipFilename,
 	HIGH_WATER_MARK,
 	LOW_WATER_MARK,
-	MAX_CHUNK_SIZE,
 	PEER_CONNECTION_CONFIG,
 	packMessage,
 	unpackMessage,
@@ -301,6 +302,8 @@ async function streamFileChunks(fileName: string, startOffset: number) {
 	let currentOffset = startOffset;
 	let lastProgressTime = Date.now();
 	let lastProgressOffset = currentOffset;
+	let currentChunkSize = DEFAULT_CHUNK_SIZE; // Start with default, adjust dynamically
+	let measuredSpeed = 0; // Bytes per second
 
 	// Helper to wait for buffer to drain
 	const waitForBufferDrain = (): Promise<void> => {
@@ -329,8 +332,8 @@ async function streamFileChunks(fileName: string, startOffset: number) {
 			await waitForBufferDrain();
 		}
 
-		// Calculate chunk boundaries
-		const nextChunkEnd = Math.min(currentOffset + MAX_CHUNK_SIZE, file.size);
+		// Calculate chunk boundaries using dynamic chunk size
+		const nextChunkEnd = Math.min(currentOffset + currentChunkSize, file.size);
 		const isLastChunk = nextChunkEnd >= file.size;
 
 		// Read chunk from file as binary data
@@ -359,8 +362,12 @@ async function streamFileChunks(fileName: string, startOffset: number) {
 			// Calculate and update transfer stats
 			const now = Date.now();
 			const timeDiffSeconds = (now - lastProgressTime) / 1000;
-			if (timeDiffSeconds >= 1) {
-				// Update stats every second
+			if (timeDiffSeconds >= 0.5) {
+				// Update stats every 0.5 seconds for more responsive chunk size adjustment
+				// Calculate raw speed in bytes per second for dynamic chunk sizing
+				const bytesDiff = nextChunkEnd - lastProgressOffset;
+				measuredSpeed = bytesDiff / timeDiffSeconds;
+
 				const { speed, eta } = calculateTransferStats(
 					nextChunkEnd,
 					file.size,
@@ -371,6 +378,15 @@ async function streamFileChunks(fileName: string, startOffset: number) {
 				senderActions.setEstimatedTimeRemaining(eta);
 				lastProgressTime = now;
 				lastProgressOffset = nextChunkEnd;
+
+				// Dynamically adjust chunk size based on measured speed
+				const newChunkSize = calculateDynamicChunkSize(
+					measuredSpeed,
+					currentChunkSize,
+				);
+				if (newChunkSize !== currentChunkSize) {
+					currentChunkSize = newChunkSize;
+				}
 			}
 
 			// logger(
@@ -620,8 +636,8 @@ function handleReceivedChunk(
 	// Calculate and update transfer stats
 	const now = Date.now();
 	const timeDiffSeconds = (now - lastReceiverProgressTime) / 1000;
-	if (timeDiffSeconds >= 1) {
-		// Update stats every second
+	if (timeDiffSeconds >= 0.5) {
+		// Update stats every 0.5 seconds
 		const totalSize = filesMetadata.reduce((sum, f) => sum + f.size, 0);
 		const { speed, eta } = calculateTransferStats(
 			totalReceivedChunks,

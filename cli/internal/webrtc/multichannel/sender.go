@@ -13,13 +13,15 @@ import (
 	"github.com/BioHazard786/Warpdrop/cli/internal/files"
 	"github.com/BioHazard786/Warpdrop/cli/internal/signaling"
 	"github.com/BioHazard786/Warpdrop/cli/internal/ui"
-	"github.com/pion/webrtc/v4"
+	"github.com/BioHazard786/Warpdrop/cli/internal/utils"
+	"github.com/BioHazard786/Warpdrop/cli/internal/webrtc"
+	pion "github.com/pion/webrtc/v4"
 	"github.com/vmihailenco/msgpack/v5"
 )
 
 // NewSenderSession creates a new WebRTC sender session
-func NewSenderSession(client *signaling.Client, handler *signaling.Handler, cfg *config.Config, numFiles int, peerInfo *signaling.PeerInfo) (*SenderSession, error) {
-	peer, err := NewSenderPeer(cfg, numFiles)
+func NewSenderSession(client *signaling.Client, handler *signaling.Handler, cfg *config.Config, fileInfos []*files.FileInfo, peerInfo *signaling.PeerInfo) (*SenderSession, error) {
+	peer, err := NewSenderPeer(client, cfg, fileInfos)
 	if err != nil {
 		return nil, err
 	}
@@ -41,77 +43,228 @@ func (s *SenderSession) SetProgressUI(fileNames []string, fileSizes []int64) {
 }
 
 // NewSenderPeer creates a new WebRTC peer
-func NewSenderPeer(cfg *config.Config, numFiles int) (*SenderPeer, error) {
+func NewSenderPeer(client *signaling.Client, cfg *config.Config, fileInfos []*files.FileInfo) (*SenderPeer, error) {
 	pc, err := newPeerConnection(cfg)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create peer connection: %w", err)
+	}
+
+	// Create control data channel for communication
+	cc, err := createControlChannel(pc)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create control channel: %w", err)
+	}
+
+	// Create data channels for each file
+	dataChannels := make([]*SenderFileChannel, len(fileInfos))
+	for i, fileInfo := range fileInfos {
+		fc, err := createFileChannel(pc, fileInfo, i)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create file channel: %w", err)
+		}
+		dataChannels[i] = fc
+	}
+
+	peer := &SenderPeer{
+		Connection:         pc,
+		controlChannel:     cc,
+		dataChannels:       dataChannels,
+		deviceInfoReceived: make(chan webrtc.DeviceInfoPayload, 1),
+		receiverReady:      make(chan struct{}, 1),
+		declineReceived:    make(chan struct{}, 1),
+		downloadingDone:    make(chan struct{}, 1),
+		done:               make(chan struct{}),
+	}
+
+	peer.setupHandlers(client)
+	peer.SetupControlHandlers()
+	peer.SetupFileHandlers()
+	return peer, nil
+}
+
+// newPeerConnection centralizes ICE server configuration
+func newPeerConnection(cfg *config.Config) (*pion.PeerConnection, error) {
+	iceServers := []pion.ICEServer{{URLs: cfg.GetSTUNServers()}}
+
+	turnServers := cfg.GetTURNServers()
+
+	if turnServers != nil {
+		username, password := cfg.GetTURNCredentials()
+		iceServers = append(iceServers, pion.ICEServer{
+			URLs:       turnServers,
+			Username:   username,
+			Credential: password,
+		})
+	}
+
+	// Determine ICE transport policy
+	// ForceRelay uses only TURN servers (useful behind restrictive networks)
+	// Otherwise use All to try direct P2P first, fall back to TURN if needed
+	policy := pion.ICETransportPolicyAll
+	if turnServers != nil && (cfg.ForceRelay || utils.ShouldForceRelay()) {
+		policy = pion.ICETransportPolicyRelay
+	}
+
+	return pion.NewPeerConnection(pion.Configuration{
+		ICEServers:         iceServers,
+		ICETransportPolicy: policy,
+	})
+}
+
+// setupHandlers configures ICE connection state handlers
+func (p *SenderPeer) setupHandlers(signalingClient *signaling.Client) {
+	p.Connection.OnICEConnectionStateChange(func(state pion.ICEConnectionState) {
+		if state == pion.ICEConnectionStateFailed || state == pion.ICEConnectionStateClosed {
+			select {
+			case p.done <- struct{}{}:
+			default:
+			}
+		}
+	})
+
+	// Setup ICE candidate handler for trickle ICE
+	p.Connection.OnICECandidate(func(c *pion.ICECandidate) {
+		if c == nil {
+			return
+		}
+		signalingClient.SendMessage(&signaling.Message{
+			Type:    signaling.MessageTypeSignal,
+			Payload: signaling.SignalPayload{ICECandidate: c.ToJSON()},
+		})
+	})
+}
+
+// CreateControlChannel creates the control channel
+func createControlChannel(pc *pion.PeerConnection) (*pion.DataChannel, error) {
+	ordered := true
+	maxRetransmits := uint16(5000)
+
+	dc, err := pc.CreateDataChannel("control", &pion.DataChannelInit{
+		Ordered:           &ordered,
+		MaxPacketLifeTime: &maxRetransmits,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return dc, nil
+}
+
+// SetupControlHandlers sets up control channel event handlers
+func (p *SenderPeer) SetupControlHandlers() {
+	p.controlChannel.OnOpen(func() {
+		p.sendMetadata()
+	})
+
+	p.controlChannel.OnMessage(func(msg pion.DataChannelMessage) {
+		// Parse message
+		var message webrtc.Message
+		if err := msgpack.Unmarshal(msg.Data, &message); err != nil {
+			fmt.Printf("❌ Failed to parse message: %v\n", err)
+			return
+		}
+
+		switch message.Type {
+		case MessageTypeReadyToReceive:
+			p.receiverReady <- struct{}{}
+
+		case MessageTypeDeclineReceive:
+			p.declineReceived <- struct{}{}
+
+		case MessageTypeDownloadingDone:
+			p.downloadingDone <- struct{}{}
+
+		case MessageTypeDeviceInfo:
+			var deviceInfo webrtc.DeviceInfoPayload
+			if err := message.DecodePayload(&deviceInfo); err != nil {
+				fmt.Printf("❌ Failed to decode metadata: %v\n", err)
+				return
+			}
+			p.deviceInfoReceived <- deviceInfo
+		}
+	})
+}
+
+// sendMetadata sends file metadata to the receiver
+func (p *SenderPeer) sendMetadata() {
+	metadata := make([]webrtc.FileMetadata, len(p.dataChannels))
+	for i, fc := range p.dataChannels {
+		metadata[i] = webrtc.FileMetadata{
+			Name: fc.FileInfo.Name,
+			Size: uint64(fc.FileInfo.Size),
+			Type: fc.FileInfo.Type,
+		}
+	}
+
+	message, err := webrtc.NewMessage(MessageTypeFilesMetadata, metadata)
+	if err != nil {
+		fmt.Printf("❌ Failed to marshal payload: %v\n", err)
+		return
+	}
+	data, err := msgpack.Marshal(message)
+	if err != nil {
+		fmt.Printf("❌ Failed to marshal metadata: %v\n", err)
+		return
+	}
+
+	if err := p.controlChannel.Send(data); err != nil {
+		fmt.Printf("❌ Failed to send metadata: %v\n", err)
+		return
+	}
+}
+
+// CreateFileChannel creates a data channel for file transfer
+func createFileChannel(pc *pion.PeerConnection, fileInfo *files.FileInfo, index int) (*SenderFileChannel, error) {
+	ordered := true
+	maxRetransmits := uint16(5000)
+
+	dc, err := pc.CreateDataChannel(fmt.Sprintf("file-transfer-%d", index), &pion.DataChannelInit{
+		Ordered:           &ordered,
+		MaxPacketLifeTime: &maxRetransmits,
+	})
+
 	if err != nil {
 		return nil, err
 	}
 
-	peer := &SenderPeer{
-		Connection:      pc,
-		dataChannels:    make([]*FileChannel, numFiles),
-		readyReceived:   make(chan struct{}, 1),
-		declineReceived: make(chan struct{}, 1),
-		downloadingDone: make(chan struct{}, 1),
-		done:            make(chan struct{}),
+	// Open file
+	file, err := os.Open(fileInfo.Path)
+	if err != nil {
+		return nil, err
 	}
 
-	peer.setupHandlers()
-	return peer, nil
+	fileChannel := &SenderFileChannel{
+		Channel:  dc,
+		FileInfo: fileInfo,
+		File:     file,
+		Packet:   make([]byte, utils.MaxChunkSize), // Allocate max size, actual read size is dynamic
+		Index:    index,
+	}
+
+	return fileChannel, nil
 }
 
-// setupHandlers configures ICE connection state handlers
-func (p *SenderPeer) setupHandlers() {
-	p.Connection.OnICEConnectionStateChange(func(state webrtc.ICEConnectionState) {
-		if state == webrtc.ICEConnectionStateFailed {
-			p.done <- struct{}{}
-		}
-	})
+// SetupFileHandlers sets up file data channel event handlers
+func (p *SenderPeer) SetupFileHandlers() {
+	// Track when channel opens
+	for _, fc := range p.dataChannels {
+		fc.Channel.OnOpen(func() {
+			atomic.AddInt32(&p.channelsReady, 1)
+		})
+	}
 }
 
 // Start establishes the WebRTC connection
-func (s *SenderSession) Start(fileInfos []*files.FileInfo) error {
+func (s *SenderSession) Start() error {
 	// Initialize spinner
 	stopSpinner := ui.RunConnectionSpinner("Establishing WebRTC connection...")
-
-	// Step 1: Create control channel for metadata
-	if err := s.Peer.CreateControlChannel(); err != nil {
-		stopSpinner()
-		return fmt.Errorf("failed to create control channel: %w", err)
-	}
-
-	// Setup control channel to send metadata on open
-	s.Peer.SetupControlHandlers(fileInfos)
-
-	// Step 2: Create one data channel per file
-	for i, fileInfo := range fileInfos {
-		if err := s.Peer.CreateFileChannel(fileInfo, i); err != nil {
-			stopSpinner()
-			return fmt.Errorf("failed to create file channel: %w", err)
-		}
-	}
-
-	// Setup ICE candidate handler for trickle ICE
-	s.Peer.Connection.OnICECandidate(func(c *webrtc.ICECandidate) {
-		if c == nil {
-			return
-		}
-		candidateBytes, _ := json.Marshal(c.ToJSON())
-		var candidateMap map[string]any
-		_ = json.Unmarshal(candidateBytes, &candidateMap)
-		s.SignalingClient.SendMessage(&signaling.Message{
-			Type:    signaling.MessageTypeSignal,
-			Payload: signaling.SignalPayload{ICECandidate: candidateMap},
-		})
-	})
+	defer stopSpinner()
 
 	// Start signal listener for incoming ICE candidates and answer
 	go s.listenForSignals()
 
-	// Step 3: Create and send WebRTC offer
+	// Create and send WebRTC offer
 	offer, err := s.Peer.CreateOffer()
 	if err != nil {
-		stopSpinner()
 		return fmt.Errorf("failed to create offer: %w", err)
 	}
 
@@ -123,115 +276,24 @@ func (s *SenderSession) Start(fileInfos []*files.FileInfo) error {
 		},
 	})
 
-	stopSpinner()
-	return nil
-}
+	// Wait for answer from receiver
+	select {
+	case deviceInfo := <-s.Peer.deviceInfoReceived:
+		stopSpinner()
+		fmt.Printf("🖥️  Receiver device: %s v%s\n", deviceInfo.DeviceName, deviceInfo.DeviceVersion)
 
-// CreateControlChannel creates the control channel
-func (p *SenderPeer) CreateControlChannel() error {
-	ordered := true
-	maxRetransmits := uint16(5000)
+	case errMsg := <-s.Handler.Error:
+		return fmt.Errorf("signaling error: %s", errMsg)
 
-	dc, err := p.Connection.CreateDataChannel("control", &webrtc.DataChannelInit{
-		Ordered:           &ordered,
-		MaxPacketLifeTime: &maxRetransmits,
-	})
-	if err != nil {
-		return err
+	case <-time.After(time.Duration(SignalTimeout) * time.Second):
+		return fmt.Errorf("timeout waiting for answer")
 	}
 
-	p.controlChannel = dc
-	return nil
-}
-
-// SetupControlHandlers sets up control channel event handlers
-func (p *SenderPeer) SetupControlHandlers(fileInfos []*files.FileInfo) {
-	p.controlChannel.OnOpen(func() {
-		// Send files metadata immediately (like web app)
-		metadata := make([]FileMetadata, len(fileInfos))
-		for i, info := range fileInfos {
-			metadata[i] = FileMetadata{
-				Name: info.Name,
-				Size: uint64(info.Size),
-				Type: info.Type,
-			}
-		}
-
-		message := struct {
-			Type    string         `msgpack:"type"`
-			Payload []FileMetadata `msgpack:"payload"`
-		}{
-			Type:    "files_metadata",
-			Payload: metadata,
-		}
-
-		data, err := msgpack.Marshal(message)
-		if err != nil {
-			return
-		}
-
-		_ = p.controlChannel.Send(data)
-	})
-
-	p.controlChannel.OnMessage(func(msg webrtc.DataChannelMessage) {
-		// Parse message
-		var message struct {
-			Type string `msgpack:"type"`
-		}
-
-		if err := msgpack.Unmarshal(msg.Data, &message); err != nil {
-			return
-		}
-
-		switch message.Type {
-		case "ready_to_receive":
-			p.readyReceived <- struct{}{}
-		case "decline_receive":
-			p.declineReceived <- struct{}{}
-		case "downloading_done":
-			p.downloadingDone <- struct{}{}
-		}
-	})
-}
-
-// CreateFileChannel creates a data channel for file transfer
-func (p *SenderPeer) CreateFileChannel(fileInfo *files.FileInfo, index int) error {
-	ordered := true
-	maxRetransmits := uint16(5000)
-
-	dc, err := p.Connection.CreateDataChannel(fmt.Sprintf("file-transfer-%d", index), &webrtc.DataChannelInit{
-		Ordered:           &ordered,
-		MaxPacketLifeTime: &maxRetransmits,
-	})
-	if err != nil {
-		return err
-	}
-
-	// Open file
-	file, err := os.Open(fileInfo.Path)
-	if err != nil {
-		return fmt.Errorf("failed to open file: %w", err)
-	}
-
-	fileChannel := &FileChannel{
-		Channel:  dc,
-		FileInfo: fileInfo,
-		File:     file,
-		Packet:   make([]byte, PacketSize),
-		Index:    index,
-	}
-
-	// Track when channel opens
-	dc.OnOpen(func() {
-		atomic.AddInt32(&p.channelsReady, 1)
-	})
-
-	p.dataChannels[index] = fileChannel
 	return nil
 }
 
 // CreateOffer creates WebRTC offer with trickle ICE (doesn't wait for gathering)
-func (p *SenderPeer) CreateOffer() (*webrtc.SessionDescription, error) {
+func (p *SenderPeer) CreateOffer() (*pion.SessionDescription, error) {
 	offer, err := p.Connection.CreateOffer(nil)
 	if err != nil {
 		return nil, err
@@ -243,47 +305,6 @@ func (p *SenderPeer) CreateOffer() (*webrtc.SessionDescription, error) {
 
 	// Return immediately - ICE candidates will be sent via OnICECandidate handler
 	return p.Connection.LocalDescription(), nil
-}
-
-// HandleSignal processes incoming signaling messages (SDP and ICE candidates)
-func (p *SenderPeer) HandleSignal(payload *signaling.SignalPayload) error {
-	// Handle SDP answer
-	if payload.SDP != "" {
-		var sdpType webrtc.SDPType
-		switch payload.Type {
-		case "offer":
-			sdpType = webrtc.SDPTypeOffer
-		case "answer":
-			sdpType = webrtc.SDPTypeAnswer
-		default:
-			return fmt.Errorf("unexpected signal type: %s", payload.Type)
-		}
-
-		desc := webrtc.SessionDescription{
-			Type: sdpType,
-			SDP:  payload.SDP,
-		}
-
-		if desc.Type == webrtc.SDPTypeAnswer {
-			return p.Connection.SetRemoteDescription(desc)
-		}
-
-		return fmt.Errorf("unexpected signal type: %s", desc.Type)
-	}
-
-	// Handle ICE candidate
-	if payload.ICECandidate != nil {
-		candidateBytes, _ := json.Marshal(payload.ICECandidate)
-		var ice webrtc.ICECandidateInit
-		if err := json.Unmarshal(candidateBytes, &ice); err != nil {
-			return fmt.Errorf("failed to parse ICE candidate: %w", err)
-		}
-		if err := p.Connection.AddICECandidate(ice); err != nil {
-			return fmt.Errorf("failed to add ICE candidate: %w", err)
-		}
-	}
-
-	return nil
 }
 
 // listenForSignals handles incoming signaling messages (ICE candidates and answer)
@@ -304,13 +325,53 @@ func (s *SenderSession) listenForSignals() {
 	}
 }
 
+// HandleSignal processes incoming signaling messages (SDP and ICE candidates)
+func (p *SenderPeer) HandleSignal(payload *signaling.SignalPayload) error {
+	// Handle SDP answer
+	if payload.SDP != "" {
+		var sdpType pion.SDPType
+		switch payload.Type {
+		case "offer":
+			sdpType = pion.SDPTypeOffer
+		case "answer":
+			sdpType = pion.SDPTypeAnswer
+		default:
+			return fmt.Errorf("unexpected signal type: %s", payload.Type)
+		}
+
+		desc := pion.SessionDescription{
+			Type: sdpType,
+			SDP:  payload.SDP,
+		}
+
+		if desc.Type == pion.SDPTypeAnswer {
+			return p.Connection.SetRemoteDescription(desc)
+		}
+	}
+
+	// Handle ICE candidate
+	if payload.ICECandidate != nil {
+		candidateBytes, _ := json.Marshal(payload.ICECandidate)
+		var ice pion.ICECandidateInit
+		if err := json.Unmarshal(candidateBytes, &ice); err != nil {
+			return fmt.Errorf("failed to parse ICE candidate: %w", err)
+		}
+		if err := p.Connection.AddICECandidate(ice); err != nil {
+			return fmt.Errorf("failed to add ICE candidate: %w", err)
+		}
+	}
+
+	return nil
+}
+
 // Transfer waits for ready signal and sends all files
 func (s *SenderSession) Transfer() error {
 	// Wait for receiver to send "ready_to_receive"
 	stopSpinner := ui.RunSpinner("Waiting for receiver to accept...")
+	defer stopSpinner()
 
 	select {
-	case <-s.Peer.readyReceived:
+	case <-s.Peer.receiverReady:
 		stopSpinner()
 	case <-s.Peer.declineReceived:
 		return fmt.Errorf("receiver declined the transfer")
@@ -321,70 +382,47 @@ func (s *SenderSession) Transfer() error {
 	}
 
 	// Wait for all data channels to be open
+	timeout := time.After(30 * time.Second)
+	ticker := time.NewTicker(50 * time.Millisecond)
+	defer ticker.Stop()
+
 	for atomic.LoadInt32(&s.Peer.channelsReady) != int32(len(s.Peer.dataChannels)) {
-		time.Sleep(50 * time.Millisecond)
+		select {
+		case <-s.Handler.PeerLeft:
+			return fmt.Errorf("peer disconnected while opening channels")
+		case <-timeout:
+			return fmt.Errorf("timeout waiting for data channels to open")
+		case <-ticker.C:
+			// Continue polling
+		}
 	}
 
 	s.globalStartTime = time.Now().UnixMilli()
 
+	filesCount := len(s.Peer.dataChannels)
+
 	// Start concurrent transfers with Bubble Tea progress UI
 	wg := &sync.WaitGroup{}
-	wg.Add(len(s.Peer.dataChannels))
-
+	wg.Add(filesCount)
 	for _, fileChannel := range s.Peer.dataChannels {
 		go s.SendFile(fileChannel, wg)
 	}
 
 	// Render progress while transfers are running
-	done := make(chan struct{})
+	progressDone := make(chan struct{})
 	go func() {
 		wg.Wait()
-		close(done)
+		close(progressDone)
 	}()
 
-	// Count lines for proper cursor movement
-	numFiles := len(s.Peer.dataChannels)
-	firstPrint := true
-
-	// Simple progress display loop
-	ticker := time.NewTicker(100 * time.Millisecond)
-	defer ticker.Stop()
-
-progressLoop:
-	for {
-		select {
-		case <-done:
-			break progressLoop
-		case <-ticker.C:
-			if s.ProgressModel != nil {
-				if !firstPrint {
-					// Move cursor up and clear each line before redrawing
-					for i := 0; i < numFiles; i++ {
-						fmt.Print("\033[A\033[2K")
-					}
-				}
-				firstPrint = false
-				fmt.Print(s.ProgressModel.View())
-			}
-		}
-	}
-
-	// Final update - clear progress lines and print final state
-	if s.ProgressModel != nil {
-		if !firstPrint {
-			for i := 0; i < numFiles; i++ {
-				fmt.Print("\033[A\033[2K")
-			}
-		}
-		fmt.Print(s.ProgressModel.View())
-	}
+	// Start progress display in background
+	s.runProgressLoop(progressDone, filesCount)
 	fmt.Println()
 
 	// Wait for receiver to confirm completion
 	select {
 	case <-s.Peer.downloadingDone:
-	case <-s.Peer.declineReceived:
-		return fmt.Errorf("receiver declined during transfer")
+		// Success
 	case <-s.Handler.PeerLeft:
 		return fmt.Errorf("peer disconnected during transfer")
 	case <-time.After(10 * time.Second):
@@ -392,92 +430,149 @@ progressLoop:
 	}
 
 	// Calculate stats
-	currentTime := time.Now().UnixMilli()
-	timeDiff := float64(currentTime-s.globalStartTime) / 1000.0
+	duration := time.Since(time.UnixMilli(s.globalStartTime))
+	seconds := duration.Seconds()
 
-	var totalSize uint64
+	var totalSize int64
 	for _, fc := range s.Peer.dataChannels {
-		totalSize += uint64(fc.FileInfo.Size)
+		totalSize += fc.FileInfo.Size
 	}
 
-	totalMiB := float64(totalSize) / 1048576.0
-	avgSpeed := totalMiB / timeDiff
-
-	// Display final stats using go-pretty table
+	// Display stats
 	fmt.Println()
 	ui.RenderTransferSummary("📊 Transfer Summary", ui.TransferSummary{
 		Status:    "✅ Complete",
 		Files:     len(s.Peer.dataChannels),
-		TotalSize: formatSize(int64(totalSize)),
-		Duration:  fmt.Sprintf("%.2f seconds", timeDiff),
-		Speed:     fmt.Sprintf("%.2f MiB/s", avgSpeed),
+		TotalSize: utils.FormatSize(totalSize),
+		Duration:  utils.FormatTimeDuration(duration),
+		Speed:     utils.FormatSpeed(float64(totalSize) / seconds),
 	})
 
 	return nil
 }
 
-// formatSize formats bytes to human readable string
-func formatSize(bytes int64) string {
-	const (
-		KB = 1024
-		MB = KB * 1024
-		GB = MB * 1024
-	)
+// Helper to run progress loop
+func (s *SenderSession) runProgressLoop(done chan struct{}, numFiles int) {
+	ticker := time.NewTicker(100 * time.Millisecond)
+	defer ticker.Stop()
 
-	switch {
-	case bytes >= GB:
-		return fmt.Sprintf("%.2f GB", float64(bytes)/float64(GB))
-	case bytes >= MB:
-		return fmt.Sprintf("%.2f MB", float64(bytes)/float64(MB))
-	case bytes >= KB:
-		return fmt.Sprintf("%.2f KB", float64(bytes)/float64(KB))
-	default:
-		return fmt.Sprintf("%d B", bytes)
+	firstPrint := true
+
+	for {
+		select {
+		case <-done:
+			// Final print to ensure 100% state is shown
+			if s.ProgressModel != nil {
+				if !firstPrint {
+					s.clearProgressLines(numFiles)
+				}
+				fmt.Print(s.ProgressModel.View())
+			}
+			return
+		case <-ticker.C:
+			if s.ProgressModel != nil {
+				if !firstPrint {
+					s.clearProgressLines(numFiles)
+				}
+				firstPrint = false
+				fmt.Print(s.ProgressModel.View())
+			}
+		}
 	}
 }
 
-// SendFile sends a single file through its data channel
-func (s *SenderSession) SendFile(fc *FileChannel, wg *sync.WaitGroup) error {
+// Helper to clear lines
+func (s *SenderSession) clearProgressLines(count int) {
+	for range count {
+		fmt.Print("\033[A\033[2K")
+	}
+}
+
+// SendFile sends a single file through its data channel with dynamic chunking
+func (s *SenderSession) SendFile(fc *SenderFileChannel, wg *sync.WaitGroup) error {
 	defer wg.Done()
 	defer fc.File.Close()
 
 	// Ensure channel is open before starting
-	if fc.Channel.ReadyState() != webrtc.DataChannelStateOpen {
+	if fc.Channel.ReadyState() != pion.DataChannelStateOpen {
 		if s.ProgressModel != nil {
 			s.ProgressModel.MarkError(fc.Index, "channel not open")
 		}
 		return fmt.Errorf("channel not open for %s: %s", fc.FileInfo.Name, fc.Channel.ReadyState())
 	}
 
+	// Initialize dynamic chunk size controller
+	chunkController := utils.NewChunkSizeController()
+
+	// Set up buffered amount low threshold for backpressure
+	fc.Channel.SetBufferedAmountLowThreshold(uint64(LowWaterMark))
+
+	// waitForWindow waits for buffer to drain before sending more data
+	waitForWindow := func() error {
+		bufferedAmount := fc.Channel.BufferedAmount()
+		if bufferedAmount < uint64(HighWaterMark) {
+			return nil
+		}
+
+		wait := make(chan struct{}, 1)
+		fc.Channel.OnBufferedAmountLow(func() {
+			select {
+			case wait <- struct{}{}:
+			default:
+			}
+		})
+
+		// Use a longer timeout for slow connections
+		timeout := time.Duration(SendTimeout) * time.Second
+
+		select {
+		case <-wait:
+			return nil
+		case <-time.After(timeout):
+			// Check if we made any progress (buffer decreased)
+			newBufferedAmount := fc.Channel.BufferedAmount()
+			if newBufferedAmount < bufferedAmount {
+				// Buffer is draining, continue
+				return nil
+			}
+			return fmt.Errorf("timed out waiting for buffer to drain (buffered: %d bytes)", newBufferedAmount)
+		}
+	}
+
 	for {
 		// Check if channel is still open
-		if fc.Channel.ReadyState() != webrtc.DataChannelStateOpen {
+		if fc.Channel.ReadyState() != pion.DataChannelStateOpen {
 			if s.ProgressModel != nil {
 				s.ProgressModel.MarkError(fc.Index, "channel closed")
 			}
 			return fmt.Errorf("channel closed during transfer")
 		}
 
-		// Wait for buffer space with backoff
-		if fc.Channel.BufferedAmount() >= BufferThreshold {
-			time.Sleep(5 * time.Millisecond)
-			continue
+		// Wait for buffer space
+		if err := waitForWindow(); err != nil {
+			if s.ProgressModel != nil {
+				s.ProgressModel.MarkError(fc.Index, "buffer timeout")
+			}
+			return err
 		}
 
+		// Get current optimal chunk size
+		chunkSize := chunkController.GetChunkSize()
+
 		// Buffer has space, proceed with sending
-		n, err := fc.File.Read(fc.Packet)
+		n, err := fc.File.Read(fc.Packet[:chunkSize])
 		if err != nil {
 			if err == io.EOF {
 				// Wait for all buffered data to be sent (with timeout)
 				startDrain := time.Now()
-				for fc.Channel.BufferedAmount() > 0 && time.Since(startDrain) < 5*time.Second {
-					if fc.Channel.ReadyState() != webrtc.DataChannelStateOpen {
+				for fc.Channel.BufferedAmount() > 0 && time.Since(startDrain) < time.Duration(DrainTimeout)*time.Second {
+					if fc.Channel.ReadyState() != pion.DataChannelStateOpen {
 						if s.ProgressModel != nil {
 							s.ProgressModel.MarkComplete(fc.Index)
 						}
 						return nil
 					}
-					time.Sleep(10 * time.Millisecond)
+					time.Sleep(50 * time.Millisecond)
 				}
 				// Mark as complete
 				if s.ProgressModel != nil {
@@ -499,13 +594,14 @@ func (s *SenderSession) SendFile(fc *FileChannel, wg *sync.WaitGroup) error {
 			return err
 		}
 
+		// Record bytes for dynamic chunk sizing
+		chunkController.RecordBytesTransferred(int64(len(packet)))
+
 		// Update progress
 		atomic.AddInt64(&fc.SentBytes, int64(len(packet)))
 		if s.ProgressModel != nil {
 			s.ProgressModel.UpdateProgress(fc.Index, atomic.LoadInt64(&fc.SentBytes))
 		}
-
-		fc.Packet = fc.Packet[:cap(fc.Packet)]
 	}
 }
 
@@ -545,20 +641,4 @@ func (p *SenderPeer) Close() error {
 		}
 	}
 	return p.Connection.Close()
-}
-
-// newPeerConnection centralizes ICE server configuration
-func newPeerConnection(cfg *config.Config) (*webrtc.PeerConnection, error) {
-	iceServers := []webrtc.ICEServer{{URLs: cfg.GetSTUNServers()}}
-
-	if turnServers := cfg.GetTURNServers(); turnServers != nil {
-		username, password := cfg.GetTURNCredentials()
-		iceServers = append(iceServers, webrtc.ICEServer{
-			URLs:       turnServers,
-			Username:   username,
-			Credential: password,
-		})
-	}
-
-	return webrtc.NewPeerConnection(webrtc.Configuration{ICEServers: iceServers})
 }

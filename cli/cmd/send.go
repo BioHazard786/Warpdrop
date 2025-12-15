@@ -20,6 +20,7 @@ var (
 	flagTURN     string
 	flagTURNUser string
 	flagTURNPass string
+	flagRelay    bool
 )
 
 // sendCmd represents the send command
@@ -71,6 +72,7 @@ func sendFiles(filePaths []string) error {
 		}
 	}
 
+	fmt.Println()
 	ui.RenderFileTable(items, "📋 Files to Send")
 	fmt.Println()
 
@@ -81,17 +83,23 @@ func sendFiles(filePaths []string) error {
 		TURNServer: flagTURN,
 		TURNUser:   flagTURNUser,
 		TURNPass:   flagTURNPass,
+		ForceRelay: flagRelay,
 	})
+
 	if err != nil {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
 
+	if cfg.ForceRelay && cfg.GetTURNServers() == nil {
+		return fmt.Errorf("cannot force relay mode without TURN server configured")
+	}
+
 	// Step 3: Connect to signaling server
 	stopSpinner := ui.RunConnectionSpinner("Establishing WebSocket connection...")
+	defer stopSpinner()
 
 	client := signaling.NewClient(cfg.WebSocketURL)
 	if err := client.Connect(); err != nil {
-		stopSpinner()
 		return fmt.Errorf("failed to connect to server: %w", err)
 	}
 	defer client.Close()
@@ -157,7 +165,7 @@ func sendFiles(filePaths []string) error {
 
 	switch protocol {
 	case webrtc.MultiChannelProtocol:
-		session, err := multichannel.NewSenderSession(client, handler, cfg, len(fileInfos), peerInfo)
+		session, err := multichannel.NewSenderSession(client, handler, cfg, fileInfoPtrs, peerInfo)
 		if err != nil {
 			return fmt.Errorf("failed to create WebRTC session: %w", err)
 		}
@@ -166,7 +174,7 @@ func sendFiles(filePaths []string) error {
 		// Set progress callback for UI updates
 		session.SetProgressUI(fileNames, fileSizes)
 
-		if err := session.Start(fileInfoPtrs); err != nil {
+		if err := session.Start(); err != nil {
 			return fmt.Errorf("failed to start WebRTC connection: %w", err)
 		}
 
@@ -175,7 +183,7 @@ func sendFiles(filePaths []string) error {
 		}
 
 	case webrtc.SingleChannelProtocol:
-		session, err := singlechannel.NewSenderSession(client, handler, cfg, peerInfo)
+		session, err := singlechannel.NewSenderSession(client, handler, cfg, fileInfoPtrs, peerInfo)
 		if err != nil {
 			return fmt.Errorf("failed to create WebRTC session: %w", err)
 		}
@@ -184,7 +192,7 @@ func sendFiles(filePaths []string) error {
 		// Set progress callback for UI updates
 		session.SetProgressUI(fileNames, fileSizes)
 
-		if err := session.Start(fileInfoPtrs); err != nil {
+		if err := session.Start(); err != nil {
 			return fmt.Errorf("failed to start WebRTC connection: %w", err)
 		}
 
@@ -209,4 +217,5 @@ func init() {
 	sendCmd.Flags().StringVarP(&flagTURN, "turn", "t", "", "Custom TURN server (optional)")
 	sendCmd.Flags().StringVarP(&flagTURNUser, "turn-user", "u", "", "TURN server username (default: warpdrop)")
 	sendCmd.Flags().StringVarP(&flagTURNPass, "turn-pass", "p", "", "TURN server password (default: warpdrop-secret)")
+	sendCmd.Flags().BoolVarP(&flagRelay, "relay", "r", false, "Force relay mode (use when behind restrictive networks)")
 }

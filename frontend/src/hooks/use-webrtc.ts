@@ -14,8 +14,6 @@ const WS_URL =
 			`${window.location.protocol === "https:" ? "wss" : "ws"}://${window.location.host}/ws`)
 		: null;
 
-// const WS_URL = "wss://warpdrop.qzz.io/ws";
-
 // useWebRTC: sets up WebSocket signaling + WebRTC peer connection lifecycle.
 // Responsibilities:
 // 1. Create/join rooms via signaling server.

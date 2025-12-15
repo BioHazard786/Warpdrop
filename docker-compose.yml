@@ -72,55 +72,55 @@ services:
       - "traefik.http.services.frontend.loadbalancer.server.port=3000"
       - "traefik.http.routers.frontend.middlewares=secure-headers@file"
 
-  coturn:
-    image: coturn/coturn:latest
-    ports:
-      - "3478:3478/tcp"
-      - "3478:3478/udp"
-      - "5349:5349/tcp"
-      - "5349:5349/udp"
-      - "60000-60128:60000-60128/udp"
-    volumes:
-      - ./deploy/turnserver.conf:/etc/coturn/turnserver.conf
-      - coturn_certs:/etc/coturn/certs
-    restart: unless-stopped
-    networks:
-      - web
-    environment:
-      - DETECT_EXTERNAL_IP=yes
-      - DETECT_RELAY_IP=yes
-    depends_on:
-      certs-dumper:
-        condition: service_healthy
+  # coturn:
+  #   image: coturn/coturn:latest
+  #   ports:
+  #     - "3478:3478/tcp"
+  #     - "3478:3478/udp"
+  #     - "5349:5349/tcp"
+  #     - "5349:5349/udp"
+  #     - "60000-60128:60000-60128/udp"
+  #   volumes:
+  #     - ./deploy/turnserver.conf:/etc/coturn/turnserver.conf
+  #     - coturn_certs:/etc/coturn/certs
+  #   restart: unless-stopped
+  #   networks:
+  #     - web
+  #   environment:
+  #     - DETECT_EXTERNAL_IP=yes
+  #     - DETECT_RELAY_IP=yes
+  #   depends_on:
+  #     certs-dumper:
+  #       condition: service_healthy
 
-  certs-dumper:
-    image: ldez/traefik-certs-dumper:latest
-    entrypoint: sh -c '
-      echo "[$(date "+%Y-%m-%d %H:%M:%S")] Waiting for acme.json and certificates...";
-      while ! [ -e /data/acme.json ]
-      || ! [ `jq ".[] | .Certificates | length" /data/acme.json | jq -s "add"` != 0 ]; do
-      sleep 1
-      ; done
-      && echo "[$(date "+%Y-%m-%d %H:%M:%S")] Certificates found! Starting traefik-certs-dumper in watch mode..."
-      && traefik-certs-dumper file --version v3 --source /data/acme.json --dest /certs --domain-subdir=true --watch --post-hook "sh /hook.sh ${DOMAIN}"'
-    healthcheck:
-      test:
-        [
-          "CMD",
-          "sh",
-          "-c",
-          "[ -r /certs/turn.${DOMAIN}/certificate.crt ] && [ -r /certs/turn.${DOMAIN}/privatekey.key ]",
-        ]
-      interval: 5s
-      timeout: 3s
-      retries: 5
-    volumes:
-      - traefik_letsencrypt:/data
-      - coturn_certs:/certs
-      - ./deploy/certs-dumper-hook.sh:/hook.sh:ro
-    restart: unless-stopped
-    networks:
-      - web
+  # certs-dumper:
+  #   image: ldez/traefik-certs-dumper:latest
+  #   entrypoint: sh -c '
+  #     echo "[$(date "+%Y-%m-%d %H:%M:%S")] Waiting for acme.json and certificates...";
+  #     while ! [ -e /data/acme.json ]
+  #     || ! [ `jq ".[] | .Certificates | length" /data/acme.json | jq -s "add"` != 0 ]; do
+  #     sleep 1
+  #     ; done
+  #     && echo "[$(date "+%Y-%m-%d %H:%M:%S")] Certificates found! Starting traefik-certs-dumper in watch mode..."
+  #     && traefik-certs-dumper file --version v3 --source /data/acme.json --dest /certs --domain-subdir=true --watch --post-hook "sh /hook.sh ${DOMAIN}"'
+  #   healthcheck:
+  #     test:
+  #       [
+  #         "CMD",
+  #         "sh",
+  #         "-c",
+  #         "[ -r /certs/turn.${DOMAIN}/certificate.crt ] && [ -r /certs/turn.${DOMAIN}/privatekey.key ]",
+  #       ]
+  #     interval: 5s
+  #     timeout: 3s
+  #     retries: 5
+  #   volumes:
+  #     - traefik_letsencrypt:/data
+  #     - coturn_certs:/certs
+  #     - ./deploy/certs-dumper-hook.sh:/hook.sh:ro
+  #   restart: unless-stopped
+  #   networks:
+  #     - web
 
   traefik:
     image: traefik:latest
