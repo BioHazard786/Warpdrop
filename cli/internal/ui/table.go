@@ -2,11 +2,10 @@ package ui
 
 import (
 	"fmt"
-	"os"
-	"strings"
 
+	"github.com/BioHazard786/Warpdrop/cli/internal/utils"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/jedib0t/go-pretty/v6/table"
+	"github.com/charmbracelet/lipgloss/table"
 )
 
 // FileTableItem represents a file in the table
@@ -17,18 +16,16 @@ type FileTableItem struct {
 	Type  string
 }
 
-// FileTable renders a beautiful file table using go-pretty
+// FileTable renders a beautiful file table using lipgloss/table
 type FileTable struct {
 	items    []FileTableItem
-	title    string
 	showType bool
 }
 
 // NewFileTable creates a new file table
-func NewFileTable(items []FileTableItem, title string) *FileTable {
+func NewFileTable(items []FileTableItem) *FileTable {
 	return &FileTable{
 		items:    items,
-		title:    title,
 		showType: true,
 	}
 }
@@ -45,82 +42,57 @@ func (t *FileTable) View() string {
 		return MutedStyle.Render("No files")
 	}
 
-	tw := table.NewWriter()
-	tw.SetStyle(table.StyleColoredBright)
-
-	// Set title if provided
-	if t.title != "" {
-		tw.SetTitle(t.title)
-	}
-
-	// Set header
+	// Define columns
+	var headers []string
 	if t.showType {
-		tw.AppendHeader(table.Row{"#", "Name", "Size", "Type"})
+		headers = []string{"#", "Name", "Size", "Type"}
 	} else {
-		tw.AppendHeader(table.Row{"#", "Name", "Size"})
+		headers = []string{"#", "Name", "Size"}
 	}
 
-	// Add rows
+	// Define rows
+	var rows [][]string
 	for _, item := range t.items {
-		name := truncateString(item.Name, 50)
-		size := formatBytes(item.Size)
-		fileType := truncateString(item.Type, 20)
+		name := utils.TruncateString(item.Name, 50)
+		size := utils.FormatSize(item.Size)
 
+		row := []string{fmt.Sprintf("%d", item.Index), name, size}
 		if t.showType {
-			tw.AppendRow(table.Row{item.Index, name, size, fileType})
-		} else {
-			tw.AppendRow(table.Row{item.Index, name, size})
+			fileType := utils.TruncateString(item.Type, 20)
+			row = append(row, fileType)
 		}
+		rows = append(rows, row)
 	}
 
-	return tw.Render()
+	// Create table
+	tbl := table.New().
+		Border(lipgloss.NormalBorder()).
+		BorderStyle(lipgloss.NewStyle().Foreground(Primary)).
+		Headers(headers...).
+		Rows(rows...).
+		StyleFunc(func(row, col int) lipgloss.Style {
+			switch {
+			case row == table.HeaderRow:
+				return TableHeaderStyle
+			case row%2 == 0:
+				return TableRowStyle
+			default:
+				return TableRowAltStyle
+			}
+		})
+
+	return tbl.Render()
 }
 
 // Render outputs the table directly to stdout
 func (t *FileTable) Render() {
-	if len(t.items) == 0 {
-		fmt.Println(MutedStyle.Render("No files"))
-		return
-	}
-
-	tw := table.NewWriter()
-	tw.SetOutputMirror(os.Stdout)
-	tw.SetStyle(table.StyleColoredBright)
-
-	// Set title if provided
-	if t.title != "" {
-		tw.SetTitle(t.title)
-	}
-
-	// Set header
-	if t.showType {
-		tw.AppendHeader(table.Row{"#", "Name", "Size", "Type"})
-	} else {
-		tw.AppendHeader(table.Row{"#", "Name", "Size"})
-	}
-
-	// Add rows
-	for _, item := range t.items {
-		name := truncateString(item.Name, 50)
-		size := formatBytes(item.Size)
-		fileType := truncateString(item.Type, 20)
-
-		if t.showType {
-			tw.AppendRow(table.Row{item.Index, name, size, fileType})
-		} else {
-			tw.AppendRow(table.Row{item.Index, name, size})
-		}
-	}
-
-	tw.Render()
+	fmt.Println(t.View())
 }
 
-// RenderFileTable is a convenience function to quickly render a file table
-func RenderFileTable(items []FileTableItem, title string) {
-	NewFileTable(items, title).Render()
+func RenderFileTable(items []FileTableItem) {
+	fmt.Println(NewFileTable(items).View())
 }
 
-// TransferSummary represents transfer statistics
 type TransferSummary struct {
 	Status    string
 	Files     int
@@ -129,130 +101,39 @@ type TransferSummary struct {
 	Speed     string
 }
 
-// RenderTransferSummary renders a transfer summary table using go-pretty
-func RenderTransferSummary(title string, summary TransferSummary) {
-	tw := table.NewWriter()
-	tw.SetOutputMirror(os.Stdout)
-	tw.SetStyle(table.StyleColoredBright)
-	tw.SetTitle(title)
-
-	tw.AppendHeader(table.Row{"Metric", "Value"})
-	tw.AppendRows([]table.Row{
+func TransferSummaryView(summary TransferSummary) string {
+	headers := []string{"Metric", "Value"}
+	rows := [][]string{
 		{"Status", summary.Status},
-		{"Files", summary.Files},
+		{"Files", fmt.Sprintf("%d", summary.Files)},
 		{"Total Size", summary.TotalSize},
 		{"Duration", summary.Duration},
 		{"Avg Speed", summary.Speed},
-	})
-
-	tw.Render()
-}
-
-// Summary renders a summary box
-type Summary struct {
-	title  string
-	items  []SummaryItem
-	status SummaryStatus
-}
-
-type SummaryItem struct {
-	Label string
-	Value string
-}
-
-type SummaryStatus int
-
-const (
-	SummaryStatusNormal SummaryStatus = iota
-	SummaryStatusSuccess
-	SummaryStatusError
-	SummaryStatusWarning
-)
-
-func NewSummary(title string, status SummaryStatus) *Summary {
-	return &Summary{
-		title:  title,
-		status: status,
-		items:  make([]SummaryItem, 0),
-	}
-}
-
-func (s *Summary) AddItem(label, value string) *Summary {
-	s.items = append(s.items, SummaryItem{Label: label, Value: value})
-	return s
-}
-
-func (s *Summary) View() string {
-	var borderColor lipgloss.Color
-	var titleStyle lipgloss.Style
-
-	switch s.status {
-	case SummaryStatusSuccess:
-		borderColor = Success
-		titleStyle = SuccessStyle
-	case SummaryStatusError:
-		borderColor = Error
-		titleStyle = ErrorStyle
-	case SummaryStatusWarning:
-		borderColor = Warning
-		titleStyle = WarningStyle
-	default:
-		borderColor = Primary
-		titleStyle = TitleStyle
 	}
 
-	// Calculate max width
-	maxLabelLen := 0
-	maxValueLen := 0
-	for _, item := range s.items {
-		if len(item.Label) > maxLabelLen {
-			maxLabelLen = len(item.Label)
-		}
-		if len(item.Value) > maxValueLen {
-			maxValueLen = len(item.Value)
-		}
-	}
+	tbl := table.New().
+		Border(lipgloss.NormalBorder()).
+		BorderStyle(lipgloss.NewStyle().Foreground(Primary)).
+		Headers(headers...).
+		Rows(rows...).
+		StyleFunc(func(row, col int) lipgloss.Style {
+			switch {
+			case row == table.HeaderRow:
+				return TableHeaderStyle
+			case row%2 == 0:
+				return TableRowStyle
+			default:
+				return TableRowAltStyle
+			}
+		})
 
-	totalWidth := maxLabelLen + maxValueLen + 8
-	if len(s.title) > totalWidth {
-		totalWidth = len(s.title) + 4
-	}
-
-	var b strings.Builder
-
-	// Top border with title
-	topBorder := "╭─ " + titleStyle.Render(s.title) + " " +
-		lipgloss.NewStyle().Foreground(borderColor).Render(strings.Repeat("─", totalWidth-len(s.title)-4)+"╮")
-	b.WriteString(topBorder + "\n")
-
-	// Items
-	labelStyle := lipgloss.NewStyle().Foreground(Muted)
-	valueStyle := lipgloss.NewStyle().Bold(true)
-
-	for _, item := range s.items {
-		line := fmt.Sprintf("│  %s %s",
-			labelStyle.Width(maxLabelLen+1).Render(item.Label+":"),
-			valueStyle.Render(item.Value),
-		)
-		padding := totalWidth + 1 - lipgloss.Width(line)
-		if padding < 0 {
-			padding = 0
-		}
-		line += strings.Repeat(" ", padding)
-		line += lipgloss.NewStyle().Foreground(borderColor).Render("│")
-		b.WriteString(lipgloss.NewStyle().Foreground(borderColor).Render("│") + line[1:] + "\n")
-	}
-
-	// Bottom border
-	bottomBorder := lipgloss.NewStyle().Foreground(borderColor).Render(
-		"╰" + strings.Repeat("─", totalWidth+1) + "╯",
-	)
-	b.WriteString(bottomBorder)
-
-	return b.String()
+	return tbl.Render()
 }
 
-// RoomInfo displays room connection information
+func RenderTransferSummary(summary TransferSummary) {
+	fmt.Println(TransferSummaryView(summary))
+}
+
 type RoomInfo struct {
 	RoomID   string
 	RoomLink string
@@ -271,27 +152,11 @@ func (r *RoomInfo) View() string {
 		BorderForeground(Success).
 		Padding(1, 2)
 
-	content := fmt.Sprintf("%s Room Created!\n\n%s Room ID (CLI):    %s\n%s Room Link (Web):  %s",
+	content := fmt.Sprintf("%s Room Created!\n\n%s Room ID:    %s\n%s Room Link:  %s",
 		IconSuccess,
 		IconCopy, BoldStyle.Foreground(Primary).Render(r.RoomID),
 		IconWeb, MutedStyle.Render(r.RoomLink),
 	)
 
 	return boxStyle.Render(content)
-}
-
-// ConfirmPrompt is a styled confirmation prompt
-type ConfirmPrompt struct {
-	message string
-}
-
-func NewConfirmPrompt(message string) *ConfirmPrompt {
-	return &ConfirmPrompt{message: message}
-}
-
-func (p *ConfirmPrompt) View() string {
-	return fmt.Sprintf("\n%s %s [Y/n] ",
-		WarningStyle.Render("?"),
-		p.message,
-	)
 }

@@ -1,6 +1,8 @@
 package ui
 
 import (
+	"fmt"
+
 	"github.com/charmbracelet/lipgloss"
 )
 
@@ -17,8 +19,8 @@ var (
 	Background = lipgloss.Color("#111827") // Dark gray
 
 	// Gradient-like colors for progress
-	ProgressStart = lipgloss.Color("#22d3ee") // WarpDrop Cyan
-	ProgressEnd   = lipgloss.Color("#7C3AED") // Violet
+	ProgressStart = "#22d3ee" // WarpDrop Cyan
+	ProgressEnd   = "#0ea5e9" // Sky Blue
 )
 
 // Text styles
@@ -84,18 +86,13 @@ var (
 	TableHeaderStyle = lipgloss.NewStyle().
 				Bold(true).
 				Foreground(Primary).
-				BorderBottom(true).
-				BorderStyle(lipgloss.NormalBorder()).
-				BorderForeground(Muted)
+				Align(lipgloss.Center)
 
-	TableRowStyle = lipgloss.NewStyle().
-			Foreground(Foreground)
+	tableCellStyle = lipgloss.NewStyle().Padding(0, 1)
 
-	TableRowAltStyle = lipgloss.NewStyle().
-				Foreground(Muted)
+	TableRowStyle = tableCellStyle.Foreground(lipgloss.Color("255"))
 
-	TableCellStyle = lipgloss.NewStyle().
-			Padding(0, 1)
+	TableRowAltStyle = tableCellStyle.Foreground(lipgloss.Color("245"))
 )
 
 // Progress bar styles
@@ -173,3 +170,39 @@ const (
 	IconWeb      = "🌐"
 	IconQR       = "📱"
 )
+
+func PrintError(msg string) {
+	fmt.Printf("%s %s\n", ErrorStyle.Render(IconError), ErrorStyle.Render(msg))
+}
+
+func PrintErrorf(format string, args ...any) {
+	PrintError(fmt.Sprintf(format, args...))
+}
+
+func PrintWarning(msg string) {
+	fmt.Printf("%s %s\n", WarningStyle.Render(IconWarning), WarningStyle.Render(msg))
+}
+
+func PrintWarningf(format string, args ...any) {
+	PrintWarning(fmt.Sprintf(format, args...))
+}
+
+func PrintSuccess(msg string) {
+	fmt.Printf("%s %s\n", SuccessStyle.Render(IconSuccess), msg)
+}
+
+func PrintSuccessf(format string, args ...any) {
+	PrintSuccess(fmt.Sprintf(format, args...))
+}
+
+func PrintInfo(msg string) {
+	fmt.Printf("%s %s\n", IconInfo, msg)
+}
+
+func PrintInfof(format string, args ...any) {
+	PrintInfo(fmt.Sprintf(format, args...))
+}
+
+func FormatError(err error) string {
+	return fmt.Sprintf("%s %s", ErrorStyle.Render(IconError), ErrorStyle.Render(err.Error()))
+}

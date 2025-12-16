@@ -1,10 +1,10 @@
 package cmd
 
 import (
-	"fmt"
 	"os"
 	"os/signal"
 
+	"github.com/BioHazard786/Warpdrop/cli/internal/ui"
 	"github.com/BioHazard786/Warpdrop/cli/internal/version"
 	"github.com/spf13/cobra"
 )
@@ -23,13 +23,15 @@ func Execute() {
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, os.Interrupt)
 	go func() {
-		for s := range sig {
-			fmt.Println(s.String())
-			os.Exit(0)
-		}
+		<-sig
+		os.Exit(0)
 	}()
-	err := rootCmd.Execute()
-	if err != nil {
+
+	rootCmd.SilenceErrors = true
+	rootCmd.SilenceUsage = true
+
+	if err := rootCmd.Execute(); err != nil {
+		ui.PrintError(err.Error())
 		os.Exit(1)
 	}
 }

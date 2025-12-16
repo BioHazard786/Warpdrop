@@ -3,18 +3,19 @@ package cmd
 import (
 	"fmt"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/BioHazard786/Warpdrop/cli/internal/config"
 	"github.com/BioHazard786/Warpdrop/cli/internal/signaling"
+	"github.com/BioHazard786/Warpdrop/cli/internal/transfer"
 	"github.com/BioHazard786/Warpdrop/cli/internal/ui"
-	"github.com/BioHazard786/Warpdrop/cli/internal/webrtc"
-	"github.com/BioHazard786/Warpdrop/cli/internal/webrtc/multichannel"
-	"github.com/BioHazard786/Warpdrop/cli/internal/webrtc/singlechannel"
+	"github.com/BioHazard786/Warpdrop/cli/internal/utils"
 	"github.com/spf13/cobra"
 )
 
-// CLI flags for receive command
 var (
 	flagReceiverDomain   string
 	flagReceiverSTUN     string
@@ -22,24 +23,20 @@ var (
 	flagReceiverTURNUser string
 	flagReceiverTURNPass string
 	flagReceiverRelay    bool
+	flagReceiverZip      bool
+	flagReceiverDir      string
 )
 
-// receiveCmd represents the receive command
 var receiveCmd = &cobra.Command{
 	Use:     "receive <room-id|url>",
 	Aliases: []string{"r"},
 	Short:   "Receive files from a sender",
-	Long: `The receive command allows you to receive files directly from a sender using WebRTC technology.
+	Long: `Receive files directly from a sender using WebRTC technology.
 
 Examples:
-  # Receive files from room ID
   warpdrop receive ABC123
-
-  # Receive from webapp URL
   warpdrop receive https://warpdrop.qzz.io/r/ABC123
-
-  # Receive with custom STUN server
-  warpdrop receive ABC123 --stun stun:stun.custom.com:19302`,
+  warpdrop receive ABC123 --relay`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		roomID, err := parseRoomInput(args[0])
@@ -50,10 +47,8 @@ Examples:
 	},
 }
 
-// receiveFiles handles the actual file receiving logic
 func receiveFiles(roomID string) error {
-	// Step 1: Load config
-	cfg, err := config.Load(config.Options{
+	cfg, err := LoadConfig(config.Options{
 		Domain:     flagReceiverDomain,
 		STUNServer: flagReceiverSTUN,
 		TURNServer: flagReceiverTURN,
@@ -62,99 +57,110 @@ func receiveFiles(roomID string) error {
 		ForceRelay: flagReceiverRelay,
 	})
 	if err != nil {
-		return fmt.Errorf("failed to load config: %w", err)
+		return err
 	}
 
-	if cfg.ForceRelay && cfg.GetTURNServers() == nil {
-		return fmt.Errorf("cannot force relay mode without TURN server configured")
+	stopSpinner := ui.RunConnectionSpinner("Connecting to server...")
+	ctx, err := NewConnectionContext(cfg)
+	if err != nil {
+		return err
 	}
-
-	// Step 2: Connect to signaling server
-	stopSpinner := ui.RunConnectionSpinner("Establishing WebSocket connection...")
-	defer stopSpinner()
-
-	client := signaling.NewClient(cfg.WebSocketURL)
-	if err := client.Connect(); err != nil {
-		return fmt.Errorf("failed to connect to server: %w", err)
-	}
-	defer client.Close()
+	defer ctx.Close()
 	stopSpinner()
 
-	// Step 3: Create message handler
-	handler := signaling.NewHandler(client)
-	defer handler.Close()
+	peerInfo, err := joinRoom(ctx, roomID)
+	if err != nil {
+		return err
+	}
+	ctx.PeerInfo = peerInfo
 
-	// Step 4: Start the handler in a goroutine (background)
-	go handler.Start()
+	session, err := CreateReceiverSession(ctx)
+	if err != nil {
+		return transfer.NewError("create session", err)
+	}
 
-	// Step 5: Send join_room message
-	client.SendMessage(&signaling.Message{
+	opts, tempDir, cleanup, err := prepareTransferOptions(flagReceiverZip, flagReceiverDir)
+	if err != nil {
+		return err
+	}
+	if cleanup != nil {
+		defer cleanup()
+	}
+
+	if err := RunReceiverSession(session, opts); err != nil {
+		return err
+	}
+
+	return finalizeTransfer(flagReceiverZip, flagReceiverDir, tempDir)
+}
+
+func prepareTransferOptions(zipMode bool, outputDir string) (*transfer.TransferOptions, string, func(), error) {
+	opts := &transfer.TransferOptions{
+		ZipMode:   zipMode,
+		OutputDir: outputDir,
+	}
+
+	var tempDir string
+	var cleanup func()
+
+	if zipMode {
+		var err error
+		tempDir, err = os.MkdirTemp("", "warpdrop-receive-*")
+		if err != nil {
+			return nil, "", nil, transfer.NewError("create temp dir", err)
+		}
+		opts.OutputDir = tempDir
+		cleanup = func() {
+			os.RemoveAll(tempDir)
+		}
+	}
+
+	return opts, tempDir, cleanup, nil
+}
+
+func finalizeTransfer(zipMode bool, outputDir, tempDir string) error {
+	if !zipMode {
+		return nil
+	}
+
+	zipName := fmt.Sprintf("warpdrop-download-%d.zip", time.Now().UnixMilli())
+	if outputDir != "" {
+		if err := os.MkdirAll(outputDir, 0755); err != nil {
+			return transfer.NewError("create output dir", err)
+		}
+		zipName = filepath.Join(outputDir, zipName)
+	}
+
+	s := ui.NewWaitingSpinner("Zipping files...")
+	s.Start()
+	if err := utils.ZipDirectory(tempDir, zipName); err != nil {
+		s.Stop()
+		return transfer.NewError("zip files", err)
+	}
+	s.Success(fmt.Sprintf("Files zipped to %s", zipName))
+
+	return nil
+}
+
+func joinRoom(ctx *ConnectionContext, roomID string) (*signaling.PeerInfo, error) {
+	ctx.Client.SendMessage(&signaling.Message{
 		Type:       signaling.MessageTypeJoinRoom,
 		RoomID:     roomID,
 		ClientType: "cli",
 	})
 
-	// Step 6: Wait for peer to join
-	var peerInfo *signaling.PeerInfo
 	select {
-	case peerInfo = <-handler.JoinSuccess:
-		fmt.Printf("Peer joined (type: %s)\n", peerInfo.ClientType)
-
-	case errMsg := <-handler.Error:
-		return fmt.Errorf("server error: %s", errMsg)
+	case peerInfo := <-ctx.Handler.JoinSuccess:
+		ui.PrintSuccessf("Connected to sender (type: %s)", peerInfo.ClientType)
+		return peerInfo, nil
+	case errMsg := <-ctx.Handler.Error:
+		return nil, transfer.WrapError("join room", transfer.ErrSignalingError, errMsg)
 	}
-
-	// Step 7: Create WebRTC session and start transfer
-	protocol := webrtc.SelectProtocol(peerInfo.ClientType)
-
-	switch protocol {
-	case webrtc.MultiChannelProtocol:
-		session, err := multichannel.NewReceiverSession(client, handler, cfg, peerInfo)
-		if err != nil {
-			return fmt.Errorf("failed to create WebRTC session: %w", err)
-		}
-		defer session.Close()
-
-		if err := session.Start(); err != nil {
-			return fmt.Errorf("failed to start WebRTC connection: %w", err)
-		}
-
-		// Set progress callback for UI updates
-		session.SetProgressUI()
-
-		if err := session.Transfer(); err != nil {
-			return fmt.Errorf("failed to transfer files: %w", err)
-		}
-
-	case webrtc.SingleChannelProtocol:
-		session, err := singlechannel.NewReceiverSession(client, handler, cfg, peerInfo)
-		if err != nil {
-			return fmt.Errorf("failed to create WebRTC session: %w", err)
-		}
-		defer session.Close()
-
-		if err := session.Start(); err != nil {
-			return fmt.Errorf("failed to start WebRTC connection: %w", err)
-		}
-
-		// Set progress callback for UI updates
-		session.SetProgressUI()
-
-		if err := session.Transfer(); err != nil {
-			return fmt.Errorf("failed to transfer files: %w", err)
-		}
-
-	default:
-		return fmt.Errorf("unsupported protocol: %s", protocol)
-	}
-
-	return nil
 }
 
-// parseRoomInput parses room ID or URL from command argument
 func parseRoomInput(input string) (string, error) {
 	if input == "" {
-		return "", fmt.Errorf("room ID or URL cannot be empty")
+		return "", fmt.Errorf("room ID cannot be empty")
 	}
 
 	if strings.Contains(input, "://") || strings.Contains(input, ".") {
@@ -162,18 +168,17 @@ func parseRoomInput(input string) (string, error) {
 		if err != nil {
 			return "", err
 		}
-		fmt.Printf("✅ Extracted room ID: %s\n", roomID)
+		ui.PrintSuccessf("Extracted room ID: %s", roomID)
 		return roomID, nil
 	}
 
 	return input, nil
 }
 
-// extractRoomIDFromURL extracts room ID from webapp URL
 func extractRoomIDFromURL(urlStr string) (string, error) {
 	parsedURL, err := url.Parse(urlStr)
 	if err != nil {
-		return "", fmt.Errorf("invalid URL: %w", err)
+		return "", transfer.NewError("parse URL", err)
 	}
 
 	path := strings.TrimSuffix(parsedURL.Path, "/")
@@ -188,14 +193,15 @@ func extractRoomIDFromURL(urlStr string) (string, error) {
 	return "", fmt.Errorf("could not extract room ID from URL: %s", urlStr)
 }
 
-// Add receiveCmd to rootCmd
 func init() {
 	rootCmd.AddCommand(receiveCmd)
 
-	receiveCmd.Flags().StringVarP(&flagReceiverDomain, "domain", "d", "", "Custom domain (default: warpdrop.qzz.io)")
-	receiveCmd.Flags().StringVarP(&flagReceiverSTUN, "stun", "s", "", "Custom STUN server (default: stun:stun.l.google.com:19302)")
-	receiveCmd.Flags().StringVarP(&flagReceiverTURN, "turn", "t", "", "Custom TURN server (optional)")
-	receiveCmd.Flags().StringVarP(&flagReceiverTURNUser, "turn-user", "u", "", "TURN server username")
-	receiveCmd.Flags().StringVarP(&flagReceiverTURNPass, "turn-pass", "p", "", "TURN server password")
-	receiveCmd.Flags().BoolVarP(&flagReceiverRelay, "relay", "r", false, "Force relay mode (use when behind restrictive networks)")
+	receiveCmd.Flags().StringVar(&flagReceiverDomain, "domain", "", "Custom domain")
+	receiveCmd.Flags().StringVarP(&flagReceiverSTUN, "stun", "s", "", "Custom STUN server")
+	receiveCmd.Flags().StringVarP(&flagReceiverTURN, "turn", "t", "", "Custom TURN server")
+	receiveCmd.Flags().StringVar(&flagReceiverTURNUser, "turn-user", "", "TURN username")
+	receiveCmd.Flags().StringVar(&flagReceiverTURNPass, "turn-pass", "", "TURN password")
+	receiveCmd.Flags().BoolVarP(&flagReceiverRelay, "relay", "r", false, "Force relay mode")
+	receiveCmd.Flags().BoolVarP(&flagReceiverZip, "zip", "z", false, "Zip received files")
+	receiveCmd.Flags().StringVarP(&flagReceiverDir, "dir", "d", "", "Directory to save received files")
 }

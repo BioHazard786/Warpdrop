@@ -131,7 +131,6 @@ func (c *ChunkSizeController) GetSpeed() float64 {
 	return c.lastSpeed
 }
 
-// FormatSize formats bytes to human readable string
 func FormatSize(bytes int64) string {
 	const (
 		KB = 1024
@@ -151,14 +150,16 @@ func FormatSize(bytes int64) string {
 	}
 }
 
-// FormatSpeed formats speed to human readable string
 func FormatSpeed(bytesPerSecond float64) string {
 	const (
 		KB = 1024.0
-		MB = KB * 1024
+		MB = KB * 1024.0
+		GB = MB * 1024.0
 	)
 
 	switch {
+	case bytesPerSecond >= GB:
+		return fmt.Sprintf("%.2f GB/s", bytesPerSecond/GB)
 	case bytesPerSecond >= MB:
 		return fmt.Sprintf("%.2f MB/s", bytesPerSecond/MB)
 	case bytesPerSecond >= KB:
@@ -190,7 +191,6 @@ func GetUniqueFilename(filename string) string {
 	}
 }
 
-// FormatTimeDuration formats duration to human readable string
 func FormatTimeDuration(d time.Duration) string {
 	seconds := int(d.Seconds()) % 60
 	minutes := int(d.Minutes()) % 60
@@ -203,4 +203,14 @@ func FormatTimeDuration(d time.Duration) string {
 	} else {
 		return fmt.Sprintf("%ds", seconds)
 	}
+}
+
+func TruncateString(s string, maxLen int) string {
+	if len(s) <= maxLen {
+		return s
+	}
+	if maxLen <= 3 {
+		return s[:maxLen]
+	}
+	return s[:maxLen-3] + "..."
 }

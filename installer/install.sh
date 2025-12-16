@@ -602,7 +602,7 @@ main() {
     print_message "== Latest version detected: ${warpdrop_version}" "ok"
   else
     print_message "== Failed to fetch latest version from GitHub, falling back to v0.0.2" "warn"
-    warpdrop_version="0.0.2"
+    warpdrop_version="0.0.3"
   fi
   
   print_message "== Install prefix set to ${prefix}" "info"

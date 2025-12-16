@@ -17,12 +17,13 @@ services:
       - "traefik.http.services.installer.loadbalancer.healthcheck.path=/health"
       - "traefik.http.services.installer.loadbalancer.healthcheck.interval=5s"
       # --- NEW: "Piggyback" Rules for TURN Certificate ---
+      # If enable turn uncomment the following lines
       # This router handles traffic for turn.warpdrop.qzz.io only to generate the cert
-      - "traefik.http.routers.turn-cert-gen.rule=Host(`turn.${DOMAIN}`)"
-      - "traefik.http.routers.turn-cert-gen.entryPoints=websecure"
-      - "traefik.http.routers.turn-cert-gen.tls.certresolver=le"
+      # - "traefik.http.routers.turn-cert-gen.rule=Host(`turn.${DOMAIN}`)"
+      # - "traefik.http.routers.turn-cert-gen.entryPoints=websecure"
+      # - "traefik.http.routers.turn-cert-gen.tls.certresolver=le"
       # Reuse the existing installer service definition
-      - "traefik.http.routers.turn-cert-gen.service=installer"
+      # - "traefik.http.routers.turn-cert-gen.service=installer"
 
   backend:
     build:
@@ -51,9 +52,9 @@ services:
     environment:
       - NODE_ENV=production
       - NEXT_PUBLIC_STUN_SERVER=${NEXT_PUBLIC_STUN_SERVER:-stun:stun.l.google.com:19302}
-      - NEXT_PUBLIC_TURN_SERVER=${NEXT_PUBLIC_TURN_SERVER:-turn.${DOMAIN}}
-      - NEXT_PUBLIC_TURN_USERNAME=${NEXT_PUBLIC_TURN_USERNAME:-warpdrop}
-      - NEXT_PUBLIC_TURN_PASSWORD=${NEXT_PUBLIC_TURN_PASSWORD:-warpdrop-secret}
+      # - NEXT_PUBLIC_TURN_SERVER=${NEXT_PUBLIC_TURN_SERVER:-turn.${DOMAIN}}
+      # - NEXT_PUBLIC_TURN_USERNAME=${NEXT_PUBLIC_TURN_USERNAME:-warpdrop}
+      # - NEXT_PUBLIC_TURN_PASSWORD=${NEXT_PUBLIC_TURN_PASSWORD:-warpdrop-secret}
     expose:
       - "3000"
     healthcheck:
@@ -72,6 +73,7 @@ services:
       - "traefik.http.services.frontend.loadbalancer.server.port=3000"
       - "traefik.http.routers.frontend.middlewares=secure-headers@file"
 
+  # for turn server uncomment the following lines
   # coturn:
   #   image: coturn/coturn:latest
   #   ports:

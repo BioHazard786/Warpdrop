@@ -109,14 +109,14 @@ export default function Sender() {
 					{files.length === 0 && (
 						<div className="flex h-10 justify-evenly items-center w-full opacity-70 mt-4">
 							<div className="text-center">
-								<div className="text-xl font-bold ">End-to-End</div>
+								<div className="text-lg md:text-xl font-bold ">End-to-End</div>
 								<div className="text-xs text-muted-foreground uppercase tracking-wider">
 									Encryption
 								</div>
 							</div>
 							<Separator orientation="vertical" />
 							<div className="text-center">
-								<div className="text-xl font-bold">P2P</div>
+								<div className="text-lg md:text-xl font-bold">P2P</div>
 								<div className="text-xs text-muted-foreground uppercase tracking-wider">
 									WebRTC
 								</div>
@@ -125,7 +125,7 @@ export default function Sender() {
 							<Separator orientation="vertical" />
 							<div className="text-center">
 								<div className="flex items-center justify-center ">
-									<Infinity />
+									<Infinity className="size-5 md:size-6"/>
 								</div>
 								<div className="text-xs text-muted-foreground uppercase tracking-wider">
 									File Size
@@ -177,7 +177,7 @@ export default function Sender() {
 											</span>
 											{renderStatusBadge(status)}
 										</span>
-										<span className="font-medium truncate ml-2 max-w-64">
+										<span className="font-medium truncate ml-2 max-w-32 md:max-w-48 lg:max-w-64">
 											{currentFileName}
 										</span>
 									</div>
