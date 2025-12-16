@@ -124,3 +124,6 @@ Desktop.ini
 *.tmp
 *.temp
 .cache/
+
+# goreleaser
+build_release_cli.sh
