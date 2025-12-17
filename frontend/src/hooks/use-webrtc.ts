@@ -253,14 +253,13 @@ export function useWebRTC({
 
 				await pc.addIceCandidate(new RTCIceCandidate(payload.ice_candidate));
 			} catch (err) {
-				// Ignore errors for ICE candidates - they're not critical
+				// Ignore errors for ICE candidates
 				logger(
 					null,
 					import.meta.url,
 					"Warning: Error adding ICE candidate (non-critical):",
 					err,
 				);
-				// Don't set error state for ICE candidate failures as the transfer still works
 			}
 		}
 	};

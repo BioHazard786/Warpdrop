@@ -17,6 +17,8 @@ import useReceiverStore, {
 } from "@/store/use-receiver-store";
 import { useRoleActions } from "@/store/use-role-store";
 import FileTable from "./file-table";
+import StatsTable from "./stats-table";
+import { formatBytes } from "@/lib/utils";
 
 export default function Receiver({ roomId }: { roomId: string }) {
 	const [shouldConnect, setShouldConnect] = useState(true);
@@ -66,8 +68,6 @@ export default function Receiver({ roomId }: { roomId: string }) {
 		return notFound();
 	}
 
-	console.log(status);
-
 	return (
 		<main className="flex flex-col items-center justify-center min-h-screen p-8 space-y-8 max-w-xl min-w-sm md:min-w-md lg:min-w-lg mx-auto">
 			<Hero />
@@ -90,6 +90,10 @@ export default function Receiver({ roomId }: { roomId: string }) {
 
 			<FileTable />
 
+			{hasStarted && status === ReceiverStatus.COMPLETED && (
+				<StatsTable />
+			)}
+			
 			{hasStarted && (
 				<div className="w-full space-y-2">
 					<div className="flex justify-between text-sm">
@@ -105,8 +109,8 @@ export default function Receiver({ roomId }: { roomId: string }) {
 					<Progress value={overallProgress} className="h-5 rounded-sm" />
 					<div className="flex justify-between text-xs text-muted-foreground">
 						<span>
-							{(bytesDownloaded / (1024 * 1024)).toFixed(2)} MB /{" "}
-							{(totalBytes / (1024 * 1024)).toFixed(2)} MB
+							{formatBytes(bytesDownloaded)} /{" "}
+							{formatBytes(totalBytes)}
 						</span>
 						<span>
 							{currentFileIndex} / {filesMetadata.length} files

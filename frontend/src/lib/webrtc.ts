@@ -8,8 +8,7 @@ import { logger } from "@/lib/logger";
 import { type MessageOfType, MessageType, parseMessage } from "@/lib/messages";
 import { calculateTransferStats } from "@/lib/transfer-stats-utils";
 import {
-	calculateDynamicChunkSize,
-	DEFAULT_CHUNK_SIZE,
+	CHUNK_SIZE,
 	getZipFilename,
 	HIGH_WATER_MARK,
 	LOW_WATER_MARK,
@@ -139,7 +138,8 @@ export function setupDataChannelHandlers(dataChannel: RTCDataChannel) {
 			const { status } = useSenderStore.getState();
 			if (
 				status === SenderStatus.COMPLETED ||
-				status === SenderStatus.SENDING
+				status === SenderStatus.SENDING ||
+				status === SenderStatus.IDLE
 			) {
 				// Transfer was in progress or completed - treat as normal close
 				logger(
@@ -279,12 +279,13 @@ function sendDeviceInfo() {
 	);
 }
 
-// Sender: Continuously stream file chunks using bufferedAmount-based backpressure
+// Sender: Stream file chunks with deduplicated logic and backpressure
 async function streamFileChunks(fileName: string, startOffset: number) {
 	const { dataChannel } = useRTCStore.getState();
 	const { files } = useFileUploadStore.getState();
 	const senderActions = useSenderStore.getState().actions;
 
+	// Validate file existence
 	const file = validateOffset(
 		files.map(({ file }) => file),
 		fileName,
@@ -292,136 +293,127 @@ async function streamFileChunks(fileName: string, startOffset: number) {
 	);
 
 	if (!dataChannel || dataChannel.readyState !== "open") {
-		logger("sender", import.meta.url, "DataChannel not open; aborting send");
+		logger("sender", import.meta.url, "DataChannel not open; aborting");
 		return;
 	}
 
-	// Set up backpressure threshold
 	dataChannel.bufferedAmountLowThreshold = LOW_WATER_MARK;
+	const reader = file.stream().getReader();
 
+	let buffer = new Uint8Array(0);
 	let currentOffset = startOffset;
 	let lastProgressTime = Date.now();
 	let lastProgressOffset = currentOffset;
-	let currentChunkSize = DEFAULT_CHUNK_SIZE; // Start with default, adjust dynamically
-	let measuredSpeed = 0; // Bytes per second
 
-	// Helper to wait for buffer to drain
+	// -- Helper: Wait for WebRTC buffer to clear --
 	const waitForBufferDrain = (): Promise<void> => {
+		if (dataChannel.bufferedAmount <= LOW_WATER_MARK) return Promise.resolve();
 		return new Promise((resolve) => {
-			if (dataChannel.bufferedAmount <= LOW_WATER_MARK) {
+			dataChannel.onbufferedamountlow = () => {
+				dataChannel.onbufferedamountlow = null;
 				resolve();
-			} else {
-				dataChannel.onbufferedamountlow = () => {
-					dataChannel.onbufferedamountlow = null;
-					resolve();
-				};
-			}
+			};
 		});
 	};
 
-	// Pump chunks continuously until file is complete
-	while (currentOffset < file.size) {
-		// Check if channel is still open
+	// -- Helper: Package, Send, and Update Stats --
+	const sendData = async (chunk: Uint8Array<ArrayBuffer>, isFinal: boolean) => {
+		// 1. Backpressure Check
+		if (dataChannel.bufferedAmount > HIGH_WATER_MARK) {
+			await waitForBufferDrain();
+		}
+
 		if (dataChannel.readyState !== "open") {
 			logger("sender", import.meta.url, "DataChannel closed during transfer");
 			return;
 		}
 
-		// Wait for buffer to have space if needed
-		if (dataChannel.bufferedAmount > HIGH_WATER_MARK) {
-			await waitForBufferDrain();
-		}
-
-		// Calculate chunk boundaries using dynamic chunk size
-		const nextChunkEnd = Math.min(currentOffset + currentChunkSize, file.size);
-		const isLastChunk = nextChunkEnd >= file.size;
-
-		// Read chunk from file as binary data
-		const chunkBlob = file.slice(currentOffset, nextChunkEnd);
-		const arrayBuffer = await chunkBlob.arrayBuffer();
-
-		const chunkMessage: MessageOfType<MessageType.CHUNK> = {
+		// 2. Prepare Message
+		const message: MessageOfType<MessageType.CHUNK> = {
 			type: MessageType.CHUNK,
 			payload: {
 				fileName,
 				offset: currentOffset,
-				bytes: new Uint8Array(arrayBuffer),
-				final: isLastChunk,
+				bytes: chunk,
+				final: isFinal,
 			},
 		};
 
-		try {
-			const payloadBytes = packMessage(chunkMessage);
-			dataChannel.send(payloadBytes);
+		// 3. Send & Update State
+		dataChannel.send(packMessage(message));
 
-			// Update progress based on bytes sent (not acknowledged)
-			senderActions.setCurrentFileOffset(nextChunkEnd);
-			senderActions.setCurrentFileProgress(nextChunkEnd / file.size);
-			senderActions.setStatus(SenderStatus.SENDING);
+		const nextOffset = currentOffset + chunk.length;
+		senderActions.setCurrentFileOffset(nextOffset);
+		senderActions.setCurrentFileProgress(nextOffset / file.size);
+		senderActions.setStatus(SenderStatus.SENDING);
 
-			// Calculate and update transfer stats
-			const now = Date.now();
-			const timeDiffSeconds = (now - lastProgressTime) / 1000;
-			if (timeDiffSeconds >= 0.5) {
-				// Update stats every 0.5 seconds for more responsive chunk size adjustment
-				// Calculate raw speed in bytes per second for dynamic chunk sizing
-				const bytesDiff = nextChunkEnd - lastProgressOffset;
-				measuredSpeed = bytesDiff / timeDiffSeconds;
-
-				const { speed, eta } = calculateTransferStats(
-					nextChunkEnd,
-					file.size,
-					lastProgressOffset,
-					timeDiffSeconds,
-				);
-				senderActions.setTransferSpeed(speed);
-				senderActions.setEstimatedTimeRemaining(eta);
-				lastProgressTime = now;
-				lastProgressOffset = nextChunkEnd;
-
-				// Dynamically adjust chunk size based on measured speed
-				const newChunkSize = calculateDynamicChunkSize(
-					measuredSpeed,
-					currentChunkSize,
-				);
-				if (newChunkSize !== currentChunkSize) {
-					currentChunkSize = newChunkSize;
-				}
-			}
-
-			// logger(
-			// 	"sender",
-			// 	import.meta.url,
-			// 	`Sent chunk for ${fileName} (${currentOffset}-${nextChunkEnd}) total size=${file.size} final=${isLastChunk}`,
-			// );
-
-			currentOffset = nextChunkEnd;
-		} catch (err) {
-			logger("sender", import.meta.url, "Error sending chunk", err);
-
-			if (dataChannel.readyState === "open")
-				senderActions.setError(
-					err instanceof Error ? err.message : String(err),
-				);
-			return;
+		// 4. Update Stats (Throttled to 1s)
+		const now = Date.now();
+		const timeDiff = (now - lastProgressTime) / 1000;
+		if (timeDiff >= 1 || isFinal) {
+			const stats = calculateTransferStats(
+				nextOffset,
+				file.size,
+				lastProgressOffset,
+				timeDiff,
+			);
+			senderActions.setTransferSpeed(stats.speed);
+			senderActions.setEstimatedTimeRemaining(stats.eta);
+			lastProgressTime = now;
+			lastProgressOffset = nextOffset;
 		}
-	}
 
-	// File transfer complete
-	logger("sender", import.meta.url, `Finished sending file: ${fileName}`);
+		currentOffset = nextOffset;
+	};
 
-	const { completedFileCount } = useSenderStore.getState();
-	senderActions.setCompletedFileCount(completedFileCount + 1);
-	senderActions.setCurrentFileProgress(0);
+	try {
+		while (true) {
+			const { value, done } = await reader.read();
+			if (done) break;
 
-	// Check if all files completed
-	if (completedFileCount + 1 >= files.length) {
-		// Don't set completed here - wait for DOWNLOADING_DONE from receiver
-		logger(
-			"sender",
-			import.meta.url,
-			"All files sent, waiting for receiver confirmation",
-		);
+			// Merge new data into buffer
+			const merged = new Uint8Array(buffer.length + value.length);
+			merged.set(buffer);
+			merged.set(value, buffer.length);
+			buffer = merged;
+
+			// Process full chunks
+			while (buffer.length >= CHUNK_SIZE) {
+				const chunk = buffer.subarray(0, CHUNK_SIZE);
+				buffer = buffer.subarray(CHUNK_SIZE);
+
+				// Check if this specific chunk finishes the file
+				const isFinal = currentOffset + chunk.length >= file.size;
+				await sendData(chunk, isFinal);
+
+				if (isFinal) break; // Stop if we hit end of file size
+			}
+		}
+
+		// Flush remaining bytes
+		if (buffer.length > 0) {
+			await sendData(buffer, true);
+		}
+
+		logger("sender", import.meta.url, `Sent file: ${fileName}`);
+
+		// Completion updates
+		const { completedFileCount } = useSenderStore.getState();
+		senderActions.setCompletedFileCount(completedFileCount + 1);
+		senderActions.setCurrentFileProgress(0); // Reset for next file
+
+		if (completedFileCount + 1 >= files.length) {
+			logger(
+				"sender",
+				import.meta.url,
+				"All files sent, awaiting confirmation",
+			);
+		}
+	} catch (err) {
+		logger("sender", import.meta.url, "Transfer failed", err);
+		if (dataChannel.readyState === "open") {
+			senderActions.setError(err instanceof Error ? err.message : String(err));
+		}
 	}
 }
 
@@ -465,6 +457,8 @@ export function initializeFileDownload() {
 		);
 		return;
 	}
+
+	receiverActions.setDownloadStarted(Date.now());
 
 	// Create ReadableStream for each file to pipe chunks to browser download
 	const newFileStreamsByName: Record<
@@ -636,8 +630,8 @@ function handleReceivedChunk(
 	// Calculate and update transfer stats
 	const now = Date.now();
 	const timeDiffSeconds = (now - lastReceiverProgressTime) / 1000;
-	if (timeDiffSeconds >= 0.5) {
-		// Update stats every 0.5 seconds
+	if (timeDiffSeconds >= 1) {
+		// Update stats every 1 seconds
 		const totalSize = filesMetadata.reduce((sum, f) => sum + f.size, 0);
 		const { speed, eta } = calculateTransferStats(
 			totalReceivedChunks,

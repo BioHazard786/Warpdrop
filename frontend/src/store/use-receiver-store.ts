@@ -29,6 +29,7 @@ export enum ReceiverStatus {
 
 type State = {
 	filesMetadata: FileMetadata[];
+	downloadStarted: number;
 	fileStreamsByName: FileStreamsByName;
 	bytesDownloaded: number;
 	currentFileIndex: number;
@@ -43,6 +44,7 @@ type State = {
 type Actions = {
 	actions: {
 		setFilesMetadata: (filesMetadata: FileMetadata[]) => void;
+		setDownloadStarted: (downloadStarted: number) => void;
 		setFileStreamsByName: (fileStreamsByName: FileStreamsByName) => void;
 		setBytesDownloaded: (bytesDownloaded: number) => void;
 		setCurrentFileIndex: (currentFileIndex: number) => void;
@@ -59,6 +61,7 @@ type Actions = {
 
 const initialState: State = {
 	filesMetadata: [],
+	downloadStarted: 0,
 	fileStreamsByName: {},
 	bytesDownloaded: 0,
 	currentFileIndex: 0,
@@ -77,6 +80,7 @@ const useReceiverStoreBase = create<State & Actions>()((set) => ({
 			set((state) => ({
 				filesMetadata: [...state.filesMetadata, ...filesMetadata],
 			})),
+		setDownloadStarted: (downloadStarted) => set({ downloadStarted }),
 		setFileStreamsByName: (fileStreamsByName) => set({ fileStreamsByName }),
 		setBytesDownloaded: (bytesDownloaded) =>
 			set((state) => ({

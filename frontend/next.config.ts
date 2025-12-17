@@ -5,6 +5,7 @@ const nextConfig: NextConfig = {
 	reactStrictMode: false,
 	// reactCompiler: true,
 	output: "standalone",
+	allowedDevOrigins: ["localhost.biohazard.qzz.io"],
 };
 
 export default nextConfig;
