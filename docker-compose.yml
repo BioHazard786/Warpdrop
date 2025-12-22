@@ -1,8 +1,6 @@
 services:
   installer:
-    build:
-      context: ./installer
-    image: warpdrop-installer:latest
+    image: ghcr.io/biohazard786/warpdrop-cli-installer:latest
     expose:
       - "8000"
     restart: unless-stopped
@@ -17,7 +15,6 @@ services:
       - "traefik.http.services.installer.loadbalancer.healthcheck.path=/health"
       - "traefik.http.services.installer.loadbalancer.healthcheck.interval=5s"
       # --- NEW: "Piggyback" Rules for TURN Certificate ---
-      # If enable turn uncomment the following lines
       # This router handles traffic for turn.warpdrop.qzz.io only to generate the cert
       # - "traefik.http.routers.turn-cert-gen.rule=Host(`turn.${DOMAIN}`)"
       # - "traefik.http.routers.turn-cert-gen.entryPoints=websecure"
@@ -26,9 +23,7 @@ services:
       # - "traefik.http.routers.turn-cert-gen.service=installer"
 
   backend:
-    build:
-      context: ./backend
-    image: warpdrop-backend:latest
+    image: ghcr.io/biohazard786/warpdrop-backend:latest
     environment:
       - PORT=8080
     expose:
@@ -46,12 +41,11 @@ services:
       - "traefik.http.services.backend.loadbalancer.healthcheck.interval=5s"
 
   frontend:
-    build:
-      context: ./frontend
-    image: warpdrop-frontend:latest
+    image: ghcr.io/biohazard786/warpdrop-frontend:latest
     environment:
       - NODE_ENV=production
       - NEXT_PUBLIC_STUN_SERVER=${NEXT_PUBLIC_STUN_SERVER:-stun:stun.l.google.com:19302}
+      - NEXT_PUBLIC_DOMAIN=${DOMAIN}
       # - NEXT_PUBLIC_TURN_SERVER=${NEXT_PUBLIC_TURN_SERVER:-turn.${DOMAIN}}
       # - NEXT_PUBLIC_TURN_USERNAME=${NEXT_PUBLIC_TURN_USERNAME:-warpdrop}
       # - NEXT_PUBLIC_TURN_PASSWORD=${NEXT_PUBLIC_TURN_PASSWORD:-warpdrop-secret}
@@ -73,7 +67,6 @@ services:
       - "traefik.http.services.frontend.loadbalancer.server.port=3000"
       - "traefik.http.routers.frontend.middlewares=secure-headers@file"
 
-  # for turn server uncomment the following lines
   # coturn:
   #   image: coturn/coturn:latest
   #   ports:

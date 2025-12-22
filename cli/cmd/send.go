@@ -40,6 +40,7 @@ Examples:
 
 func sendFiles(filePaths []string) error {
 	stopSpinner := ui.RunSpinner("Validating files...")
+	defer stopSpinner()
 	fileInfos, err := files.ValidateFiles(filePaths)
 	if err != nil {
 		return err
@@ -60,7 +61,9 @@ func sendFiles(filePaths []string) error {
 		return err
 	}
 
+	fmt.Println()
 	stopSpinner = ui.RunConnectionSpinner("Connecting to server...")
+	defer stopSpinner()
 	ctx, err := NewConnectionContext(cfg)
 	if err != nil {
 		return err
@@ -98,14 +101,10 @@ func displayFileTable(fileInfos []files.FileInfo) {
 	}
 	fmt.Println()
 	ui.RenderFileTable(items)
-	fmt.Println()
 }
 
 func displayRoomInfo(roomID string, cfg *config.Config) {
-	roomInfo := ui.NewRoomInfo(roomID, cfg.GetRoomLink(roomID))
-	fmt.Println()
-	fmt.Println(roomInfo.View())
-	fmt.Println()
+	ui.RenderRoomInfo(roomID, cfg.GetRoomLink(roomID))
 }
 
 func createRoom(ctx *ConnectionContext) (string, error) {
@@ -123,15 +122,14 @@ func createRoom(ctx *ConnectionContext) (string, error) {
 }
 
 func waitForPeer(ctx *ConnectionContext) (*signaling.PeerInfo, error) {
-	spin := ui.NewWaitingSpinner("Waiting for receiver to join...")
-	spin.Start()
+	fmt.Println()
+	stopSpinner := ui.RunWaitingSpinner("Waiting for receiver to join...")
+	defer stopSpinner()
 
 	select {
 	case peerInfo := <-ctx.Handler.PeerJoined:
-		spin.Success(fmt.Sprintf("Peer joined (type: %s)", peerInfo.ClientType))
 		return peerInfo, nil
 	case errMsg := <-ctx.Handler.Error:
-		spin.Stop()
 		return nil, transfer.WrapError("wait for peer", transfer.ErrSignalingError, errMsg)
 	}
 }

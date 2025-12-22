@@ -43,6 +43,8 @@ builds:
         goarch: "386"
       - goos: freebsd
         goarch: arm
+      - goos: windows
+        goarch: arm
     goarm:
       - "7"
     ldflags:

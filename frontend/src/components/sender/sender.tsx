@@ -68,7 +68,7 @@ export default function Sender() {
 	};
 
 	return (
-		<main className="flex flex-col items-center justify-center min-h-screen p-8 space-y-8 max-w-xl min-w-sm md:min-w-md lg:min-w-lg mx-auto">
+		<main className="flex flex-col items-center justify-center min-h-screen p-4 md:p-8 space-y-8 max-w-xl w-full md:min-w-md lg:min-w-lg mx-auto pb-(--footer-h)">
 			<Hero />
 
 			{/* Status and error messages */}
@@ -125,7 +125,7 @@ export default function Sender() {
 							<Separator orientation="vertical" />
 							<div className="text-center">
 								<div className="flex items-center justify-center ">
-									<Infinity className="size-5 md:size-6"/>
+									<Infinity className="size-5 md:size-6" />
 								</div>
 								<div className="text-xs text-muted-foreground uppercase tracking-wider">
 									File Size

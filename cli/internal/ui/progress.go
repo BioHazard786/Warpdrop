@@ -3,7 +3,6 @@ package ui
 import (
 	"fmt"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/BioHazard786/Warpdrop/cli/internal/utils"
@@ -19,8 +18,8 @@ type ProgressItem struct {
 	Total      int64
 	Current    int64
 	StartTime  time.Time
-	Started    bool    // tracks if transfer has actually started
-	Speed      float64 // bytes per second
+	Started    bool
+	Speed      float64
 	IsComplete bool
 	HasError   bool
 	ErrorMsg   string
@@ -31,24 +30,20 @@ type ProgressModel struct {
 	items      []*ProgressItem
 	progresses []progress.Model
 	width      int
-	mu         sync.RWMutex
 }
 
 // NewProgressModel creates a new multi-file progress model
-func NewProgressModel(fileNames []string, fileSizes []int64) *ProgressModel {
+func NewProgressModel(fileNames []string, fileSizes []int64) ProgressModel {
 	items := make([]*ProgressItem, len(fileNames))
 	progresses := make([]progress.Model, len(fileNames))
 
 	for i := range fileNames {
 		items[i] = &ProgressItem{
-			ID:      i,
-			Name:    fileNames[i],
-			Total:   fileSizes[i],
-			Current: 0,
-			Started: false, // StartTime will be set on first byte received
+			ID:    i,
+			Name:  fileNames[i],
+			Total: fileSizes[i],
 		}
 
-		// Use cyan/blue gradient matching WarpDrop accent color
 		p := progress.New(
 			progress.WithGradient(ProgressStart, ProgressEnd),
 			progress.WithWidth(30),
@@ -57,19 +52,35 @@ func NewProgressModel(fileNames []string, fileSizes []int64) *ProgressModel {
 		progresses[i] = p
 	}
 
-	return &ProgressModel{
+	return ProgressModel{
 		items:      items,
 		progresses: progresses,
 		width:      80,
 	}
 }
 
-func (m *ProgressModel) Init() tea.Cmd {
+func (m ProgressModel) Init() tea.Cmd {
 	return tickCmd()
 }
 
-// TickMsg is sent periodically to update the progress display
 type TickMsg time.Time
+
+// ProgressMsg updates the progress of a specific file
+type ProgressMsg struct {
+	ID      int
+	Current int64
+}
+
+// ProgressCompleteMsg marks a file as complete
+type ProgressCompleteMsg struct {
+	ID int
+}
+
+// ProgressErrorMsg marks a file as errored
+type ProgressErrorMsg struct {
+	ID  int
+	Err error
+}
 
 func tickCmd() tea.Cmd {
 	return tea.Tick(100*time.Millisecond, func(t time.Time) tea.Msg {
@@ -77,58 +88,8 @@ func tickCmd() tea.Cmd {
 	})
 }
 
-// UpdateProgress updates a specific file's progress
-func (m *ProgressModel) UpdateProgress(id int, current int64) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	if id >= 0 && id < len(m.items) {
-		item := m.items[id]
-		// Start timing from first byte received, not from model creation
-		if !item.Started && current > 0 {
-			item.Started = true
-			item.StartTime = time.Now()
-		}
-		if item.Started {
-			elapsed := time.Since(item.StartTime).Seconds()
-			if elapsed > 0 {
-				item.Speed = float64(current) / elapsed
-			}
-		}
-		item.Current = current
-		if current >= item.Total {
-			item.IsComplete = true
-		}
-	}
-}
-
-// MarkComplete marks a file as complete
-func (m *ProgressModel) MarkComplete(id int) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	if id >= 0 && id < len(m.items) {
-		m.items[id].IsComplete = true
-		m.items[id].Current = m.items[id].Total
-	}
-}
-
-// MarkError marks a file as having an error
-func (m *ProgressModel) MarkError(id int, errMsg string) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	if id >= 0 && id < len(m.items) {
-		m.items[id].HasError = true
-		m.items[id].ErrorMsg = errMsg
-	}
-}
-
 // AllComplete returns true if all files are complete
-func (m *ProgressModel) AllComplete() bool {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-
+func (m ProgressModel) AllComplete() bool {
 	for _, item := range m.items {
 		if !item.IsComplete && !item.HasError {
 			return false
@@ -137,12 +98,17 @@ func (m *ProgressModel) AllComplete() bool {
 	return true
 }
 
-func (m *ProgressModel) Update(msg tea.Msg) (*ProgressModel, tea.Cmd) {
+func (m ProgressModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case TickMsg:
-		// Continue ticking if not all complete
-		if !m.AllComplete() {
-			return m, tickCmd()
+		if m.AllComplete() {
+			return m, tea.Quit
+		}
+		return m, tickCmd()
+
+	case tea.KeyMsg:
+		if msg.Type == tea.KeyCtrlC {
+			return m, tea.Quit
 		}
 		return m, nil
 
@@ -162,19 +128,55 @@ func (m *ProgressModel) Update(msg tea.Msg) (*ProgressModel, tea.Cmd) {
 			cmds = append(cmds, cmd)
 		}
 		return m, tea.Batch(cmds...)
+
+	case ProgressMsg:
+		if msg.ID >= 0 && msg.ID < len(m.items) {
+			item := m.items[msg.ID]
+			if !item.Started && msg.Current > 0 {
+				item.Started = true
+				item.StartTime = time.Now()
+			}
+			if item.Started {
+				elapsed := time.Since(item.StartTime).Seconds()
+				if elapsed > 0 {
+					item.Speed = float64(msg.Current) / elapsed
+				}
+			}
+			item.Current = msg.Current
+			if item.Current >= item.Total {
+				item.IsComplete = true
+			}
+		}
+		return m, nil
+
+	case ProgressCompleteMsg:
+		if msg.ID >= 0 && msg.ID < len(m.items) {
+			m.items[msg.ID].IsComplete = true
+			m.items[msg.ID].Current = m.items[msg.ID].Total
+		}
+		if m.AllComplete() {
+			return m, tea.Quit
+		}
+		return m, nil
+
+	case ProgressErrorMsg:
+		if msg.ID >= 0 && msg.ID < len(m.items) {
+			m.items[msg.ID].HasError = true
+			m.items[msg.ID].ErrorMsg = msg.Err.Error()
+		}
+		if m.AllComplete() {
+			return m, tea.Quit
+		}
+		return m, nil
 	}
 
 	return m, nil
 }
 
-func (m *ProgressModel) View() string {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-
+func (m ProgressModel) View() string {
 	var b strings.Builder
 
 	for i, item := range m.items {
-		// Status icon
 		var icon string
 		var nameStyle lipgloss.Style
 
@@ -189,26 +191,21 @@ func (m *ProgressModel) View() string {
 			nameStyle = lipgloss.NewStyle()
 		}
 
-		// File name (truncated if needed)
 		name := utils.TruncateString(item.Name, 30)
 		b.WriteString(fmt.Sprintf("%s %s ", icon, nameStyle.Render(name)))
 
-		// Progress bar
 		if item.Total > 0 {
 			percent := float64(item.Current) / float64(item.Total)
 			b.WriteString(m.progresses[i].ViewAs(percent))
 		}
 
-		// Percentage
 		if item.Total > 0 {
 			percent := float64(item.Current) / float64(item.Total) * 100
 			b.WriteString(fmt.Sprintf(" %5.1f%%", percent))
 		}
 
-		// Speed and ETA
 		if !item.IsComplete && !item.HasError && item.Speed > 0 {
 			b.WriteString(MutedStyle.Render(fmt.Sprintf(" %s", utils.FormatSpeed(item.Speed))))
-			// Calculate ETA
 			remaining := item.Total - item.Current
 			if remaining > 0 && item.Speed > 0 {
 				etaSeconds := float64(remaining) / item.Speed
@@ -216,7 +213,6 @@ func (m *ProgressModel) View() string {
 			}
 		}
 
-		// Size
 		b.WriteString(MutedStyle.Render(fmt.Sprintf(" (%s/%s)",
 			utils.FormatSize(item.Current),
 			utils.FormatSize(item.Total))))
@@ -227,11 +223,8 @@ func (m *ProgressModel) View() string {
 	return b.String()
 }
 
-// GetTotalProgress returns overall progress percentage and total stats
-func (m *ProgressModel) GetTotalProgress() (percent float64, current, total int64, speed float64) {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-
+// GetTotalProgress returns overall progress information
+func (m ProgressModel) GetTotalProgress() (percent float64, current, total int64, speed float64) {
 	var totalSpeed float64
 	for _, item := range m.items {
 		current += item.Current

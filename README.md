@@ -3,7 +3,9 @@
 Privacy-first, self-hostable, realtime file sharing. Like AirDrop, but for people who don't trust "The Cloud™️" or just want to feel like a hacker sending files over a CLI.
 
 - **Web**: [warpdrop.qzz.io](https://warpdrop.qzz.io)
-- **CLI**: `curl install.warpdrop.qzz.io | bash`
+- **CLI**: `curl -fsSL install.warpdrop.qzz.io | bash`
+  - **Scoop (Windows)**: `scoop bucket add biohazard786 https://github.com/BioHazard786/scoop-bucket.git && scoop install biohazard786/warpdrop`
+  - **Brew (MacOS)**: `brew tap BioHazard786/tap && brew install --cask warpdrop`
 - **Self-Hosting**: [DEPLOY.md](DEPLOY.md) (Because you're an adult and you can host your own servers).
 
 ---
@@ -35,7 +37,7 @@ You're in a terminal. You haven't seen a GUI in weeks.
 
 ```bash
 # Install the magic
-curl install.warpdrop.qzz.io | bash
+curl -fsSL install.warpdrop.qzz.io | bash
 
 # Send your top-secret manifesto
 warpdrop send ./manifesto.txt

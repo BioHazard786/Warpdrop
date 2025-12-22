@@ -2,75 +2,31 @@ package ui
 
 import (
 	"fmt"
+	"os"
 
 	"github.com/BioHazard786/Warpdrop/cli/internal/utils"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/lipgloss/table"
+	"golang.org/x/term"
 )
 
-// FileTableItem represents a file in the table
-type FileTableItem struct {
-	Index int
-	Name  string
-	Size  int64
-	Type  string
+/* -------------------------------------------------------------------------- */
+/*                                   Helpers                                  */
+/* -------------------------------------------------------------------------- */
+
+func terminalWidth() int {
+	w, _, err := term.GetSize(int(os.Stdout.Fd()))
+	if err != nil || w <= 0 {
+		return 80
+	}
+	return w
 }
 
-// FileTable renders a beautiful file table using lipgloss/table
-type FileTable struct {
-	items    []FileTableItem
-	showType bool
-}
-
-// NewFileTable creates a new file table
-func NewFileTable(items []FileTableItem) *FileTable {
-	return &FileTable{
-		items:    items,
-		showType: true,
-	}
-}
-
-// HideType hides the file type column
-func (t *FileTable) HideType() *FileTable {
-	t.showType = false
-	return t
-}
-
-// View renders the table as a string
-func (t *FileTable) View() string {
-	if len(t.items) == 0 {
-		return MutedStyle.Render("No files")
-	}
-
-	// Define columns
-	var headers []string
-	if t.showType {
-		headers = []string{"#", "Name", "Size", "Type"}
-	} else {
-		headers = []string{"#", "Name", "Size"}
-	}
-
-	// Define rows
-	var rows [][]string
-	for _, item := range t.items {
-		name := utils.TruncateString(item.Name, 50)
-		size := utils.FormatSize(item.Size)
-
-		row := []string{fmt.Sprintf("%d", item.Index), name, size}
-		if t.showType {
-			fileType := utils.TruncateString(item.Type, 20)
-			row = append(row, fileType)
-		}
-		rows = append(rows, row)
-	}
-
-	// Create table
-	tbl := table.New().
+func tableStyle() *table.Table {
+	return table.New().
 		Border(lipgloss.NormalBorder()).
 		BorderStyle(lipgloss.NewStyle().Foreground(Primary)).
-		Headers(headers...).
-		Rows(rows...).
-		StyleFunc(func(row, col int) lipgloss.Style {
+		StyleFunc(func(row, _ int) lipgloss.Style {
 			switch {
 			case row == table.HeaderRow:
 				return TableHeaderStyle
@@ -80,11 +36,96 @@ func (t *FileTable) View() string {
 				return TableRowAltStyle
 			}
 		})
+}
+
+func tableWidth(headers []string, rows [][]string) int {
+	colWidths := make([]int, len(headers))
+
+	for i, h := range headers {
+		colWidths[i] = lipgloss.Width(h)
+	}
+
+	for _, row := range rows {
+		for i, cell := range row {
+			if w := lipgloss.Width(cell); w > colWidths[i] {
+				colWidths[i] = w
+			}
+		}
+	}
+
+	width := 0
+	for _, w := range colWidths {
+		width += w
+	}
+
+	// column separators
+	return width + len(headers) - 1
+}
+
+/* -------------------------------------------------------------------------- */
+/*                                 File Table                                 */
+/* -------------------------------------------------------------------------- */
+
+type FileTableItem struct {
+	Index int
+	Name  string
+	Size  int64
+	Type  string
+}
+
+type FileTable struct {
+	items    []FileTableItem
+	showType bool
+}
+
+func NewFileTable(items []FileTableItem) *FileTable {
+	return &FileTable{
+		items:    items,
+		showType: true,
+	}
+}
+
+func (t *FileTable) HideType() *FileTable {
+	t.showType = false
+	return t
+}
+
+func (t *FileTable) View() string {
+	if len(t.items) == 0 {
+		return MutedStyle.Render("No files")
+	}
+
+	headers := []string{"#", "Name", "Size"}
+	if t.showType {
+		headers = append(headers, "Type")
+	}
+
+	rows := make([][]string, 0, len(t.items))
+	for _, item := range t.items {
+		row := []string{
+			fmt.Sprintf("%d", item.Index),
+			item.Name,
+			utils.FormatSize(item.Size),
+		}
+
+		if t.showType {
+			row = append(row, item.Type)
+		}
+
+		rows = append(rows, row)
+	}
+
+	tbl := tableStyle().
+		Headers(headers...).
+		Rows(rows...)
+
+	if w := tableWidth(headers, rows); w > terminalWidth() {
+		tbl = tbl.Width(terminalWidth())
+	}
 
 	return tbl.Render()
 }
 
-// Render outputs the table directly to stdout
 func (t *FileTable) Render() {
 	fmt.Println(t.View())
 }
@@ -92,6 +133,10 @@ func (t *FileTable) Render() {
 func RenderFileTable(items []FileTableItem) {
 	fmt.Println(NewFileTable(items).View())
 }
+
+/* -------------------------------------------------------------------------- */
+/*                             Transfer Summary                                */
+/* -------------------------------------------------------------------------- */
 
 type TransferSummary struct {
 	Status    string
@@ -101,38 +146,45 @@ type TransferSummary struct {
 	Speed     string
 }
 
-func TransferSummaryView(summary TransferSummary) string {
+func NewTransferSummary(summary TransferSummary) *TransferSummary {
+	return &TransferSummary{
+		Status:    summary.Status,
+		Files:     summary.Files,
+		TotalSize: summary.TotalSize,
+		Duration:  summary.Duration,
+		Speed:     summary.Speed,
+	}
+}
+
+func (t *TransferSummary) View() string {
 	headers := []string{"Metric", "Value"}
+
 	rows := [][]string{
-		{"Status", summary.Status},
-		{"Files", fmt.Sprintf("%d", summary.Files)},
-		{"Total Size", summary.TotalSize},
-		{"Duration", summary.Duration},
-		{"Avg Speed", summary.Speed},
+		{"Status", t.Status},
+		{"Files", fmt.Sprintf("%d", t.Files)},
+		{"Total Size", t.TotalSize},
+		{"Duration", t.Duration},
+		{"Avg Speed", t.Speed},
 	}
 
-	tbl := table.New().
-		Border(lipgloss.NormalBorder()).
-		BorderStyle(lipgloss.NewStyle().Foreground(Primary)).
+	tbl := tableStyle().
 		Headers(headers...).
-		Rows(rows...).
-		StyleFunc(func(row, col int) lipgloss.Style {
-			switch {
-			case row == table.HeaderRow:
-				return TableHeaderStyle
-			case row%2 == 0:
-				return TableRowStyle
-			default:
-				return TableRowAltStyle
-			}
-		})
+		Rows(rows...)
+
+	if w := tableWidth(headers, rows); w > terminalWidth() {
+		tbl = tbl.Width(terminalWidth())
+	}
 
 	return tbl.Render()
 }
 
 func RenderTransferSummary(summary TransferSummary) {
-	fmt.Println(TransferSummaryView(summary))
+	fmt.Println(NewTransferSummary(summary).View())
 }
+
+/* -------------------------------------------------------------------------- */
+/*                                  Room Info                                 */
+/* -------------------------------------------------------------------------- */
 
 type RoomInfo struct {
 	RoomID   string
@@ -147,16 +199,17 @@ func NewRoomInfo(roomID, roomLink string) *RoomInfo {
 }
 
 func (r *RoomInfo) View() string {
-	boxStyle := lipgloss.NewStyle().
-		Border(lipgloss.DoubleBorder()).
-		BorderForeground(Success).
-		Padding(1, 2)
+	content := fmt.Sprintf("%s Room Created!\n\n%s Room ID: %s\n%s Room Link: %s", IconSuccess, IconCopy, BoldStyle.Foreground(Primary).Render(r.RoomID), IconWeb, MutedStyle.Render(r.RoomLink))
 
-	content := fmt.Sprintf("%s Room Created!\n\n%s Room ID:    %s\n%s Room Link:  %s",
-		IconSuccess,
-		IconCopy, BoldStyle.Foreground(Primary).Render(r.RoomID),
-		IconWeb, MutedStyle.Render(r.RoomLink),
-	)
+	box := SuccessBoxStyle
 
-	return boxStyle.Render(content)
+	if w := lipgloss.Width(content) + box.GetHorizontalFrameSize(); w > terminalWidth() {
+		box = box.Width(terminalWidth() - 2)
+	}
+
+	return box.Render(content)
+}
+
+func RenderRoomInfo(roomID, roomLink string) {
+	fmt.Println(NewRoomInfo(roomID, roomLink).View())
 }

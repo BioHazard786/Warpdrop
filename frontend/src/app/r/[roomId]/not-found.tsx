@@ -4,7 +4,7 @@ import { ArrowUpRightIcon, SearchIcon } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useRef } from "react";
-import MoodPuzzled from "@/components/mood-puzzled";
+import MoodPuzzled from "@/components/icons/mood-puzzled";
 import { Button } from "@/components/ui/button";
 import {
 	Empty,

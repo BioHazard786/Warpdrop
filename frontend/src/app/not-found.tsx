@@ -1,5 +1,5 @@
 import Link from "next/link";
-import MoodPuzzled from "@/components/mood-puzzled";
+import MoodPuzzled from "@/components/icons/mood-puzzled";
 import { Button } from "@/components/ui/button";
 import {
 	Empty,

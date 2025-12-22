@@ -200,30 +200,51 @@ func (r *ReceiverSession) Transfer() error {
 		return transfer.ErrTransferCancelled
 	}
 
-	transfer.SendSimpleMessage(r.peer.controlChannel, transfer.MessageTypeReadyToReceive)
-
 	r.progress.Start()
 	fmt.Printf("\n%s Receiving files...\n\n", ui.IconReceive)
 
 	filesCount := len(r.peer.fileChannels)
+	errChan := make(chan error, 1)
 
-	wg := &sync.WaitGroup{}
-	wg.Add(filesCount)
-
-	for _, fc := range r.peer.fileChannels {
-		go r.receiveFile(fc, wg)
-	}
-
-	progressDone := make(chan struct{})
 	go func() {
+		defer r.progress.Program.Quit()
+
+		transfer.SendSimpleMessage(r.peer.controlChannel, transfer.MessageTypeReadyToReceive)
+
+		wg := &sync.WaitGroup{}
+		wg.Add(filesCount)
+
+		var firstErr error
+		var errOnce sync.Once
+
+		for _, fc := range r.peer.fileChannels {
+			go func(fc *ReceiverFileChannel) {
+				if err := r.receiveFile(fc, wg); err != nil {
+					errOnce.Do(func() {
+						firstErr = err
+					})
+				}
+			}(fc)
+		}
+
 		wg.Wait()
-		close(progressDone)
+
+		if firstErr != nil {
+			errChan <- firstErr
+			return
+		}
+
+		transfer.SendSimpleMessage(r.peer.controlChannel, transfer.MessageTypeDownloadingDone)
+		errChan <- nil
 	}()
 
-	transfer.RunProgressLoop(progressDone, filesCount, r.progress.View, transfer.ClearProgressLines)
-	fmt.Println()
+	if err := r.progress.Run(); err != nil {
+		return err
+	}
 
-	transfer.SendSimpleMessage(r.peer.controlChannel, transfer.MessageTypeDownloadingDone)
+	if err := <-errChan; err != nil {
+		return err
+	}
 
 	transfer.RenderSummary(filesCount, r.progress.TotalSize(), r.progress.Duration())
 	return nil

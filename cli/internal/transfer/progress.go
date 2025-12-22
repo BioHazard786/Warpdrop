@@ -7,18 +7,20 @@ import (
 	"github.com/BioHazard786/Warpdrop/cli/internal/ui"
 	"github.com/BioHazard786/Warpdrop/cli/internal/utils"
 	"github.com/BioHazard786/Warpdrop/cli/internal/webrtc"
+	tea "github.com/charmbracelet/bubbletea"
 )
 
 type ProgressTracker struct {
-	Model     *ui.ProgressModel
+	Program   *tea.Program
 	FileNames []string
 	FileSizes []int64
 	StartTime int64
 }
 
 func NewProgressTracker(fileNames []string, fileSizes []int64) *ProgressTracker {
+	model := ui.NewProgressModel(fileNames, fileSizes)
 	return &ProgressTracker{
-		Model:     ui.NewProgressModel(fileNames, fileSizes),
+		Program:   tea.NewProgram(model),
 		FileNames: fileNames,
 		FileSizes: fileSizes,
 	}
@@ -28,29 +30,27 @@ func (p *ProgressTracker) Start() {
 	p.StartTime = time.Now().UnixMilli()
 }
 
+func (p *ProgressTracker) Run() error {
+	_, err := p.Program.Run()
+	return err
+}
+
 func (p *ProgressTracker) Update(index int, current int64) {
-	if p.Model != nil {
-		p.Model.UpdateProgress(index, current)
+	if p.Program != nil {
+		p.Program.Send(ui.ProgressMsg{ID: index, Current: current})
 	}
 }
 
 func (p *ProgressTracker) Complete(index int) {
-	if p.Model != nil {
-		p.Model.MarkComplete(index)
+	if p.Program != nil {
+		p.Program.Send(ui.ProgressCompleteMsg{ID: index})
 	}
 }
 
 func (p *ProgressTracker) Error(index int, msg string) {
-	if p.Model != nil {
-		p.Model.MarkError(index, msg)
+	if p.Program != nil {
+		p.Program.Send(ui.ProgressErrorMsg{ID: index, Err: fmt.Errorf("%s", msg)})
 	}
-}
-
-func (p *ProgressTracker) View() string {
-	if p.Model != nil {
-		return p.Model.View()
-	}
-	return ""
 }
 
 func (p *ProgressTracker) TotalSize() int64 {
@@ -63,35 +63,6 @@ func (p *ProgressTracker) TotalSize() int64 {
 
 func (p *ProgressTracker) Duration() time.Duration {
 	return time.Since(time.UnixMilli(p.StartTime))
-}
-
-func RunProgressLoop(done <-chan struct{}, numFiles int, view func() string, clear func(int)) {
-	ticker := time.NewTicker(100 * time.Millisecond)
-	defer ticker.Stop()
-
-	firstPrint := true
-	for {
-		select {
-		case <-done:
-			if !firstPrint {
-				clear(numFiles)
-			}
-			fmt.Print(view())
-			return
-		case <-ticker.C:
-			if !firstPrint {
-				clear(numFiles)
-			}
-			firstPrint = false
-			fmt.Print(view())
-		}
-	}
-}
-
-func ClearProgressLines(count int) {
-	for range count {
-		fmt.Print("\033[A\033[2K")
-	}
 }
 
 func RenderSummary(filesCount int, totalSize int64, duration time.Duration) {

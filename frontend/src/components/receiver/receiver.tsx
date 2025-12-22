@@ -10,6 +10,7 @@ import { IsSenderContext } from "@/context/is-sender-context";
 import { useCloseConfirmation } from "@/hooks/use-close-conformation";
 import { useWebRTC } from "@/hooks/use-webrtc";
 import { logger } from "@/lib/logger";
+import { formatBytes } from "@/lib/utils";
 import { initializeFileDownload } from "@/lib/webrtc";
 import useReceiverStore, {
 	ReceiverStatus,
@@ -18,7 +19,6 @@ import useReceiverStore, {
 import { useRoleActions } from "@/store/use-role-store";
 import FileTable from "./file-table";
 import StatsTable from "./stats-table";
-import { formatBytes } from "@/lib/utils";
 
 export default function Receiver({ roomId }: { roomId: string }) {
 	const [shouldConnect, setShouldConnect] = useState(true);
@@ -69,7 +69,7 @@ export default function Receiver({ roomId }: { roomId: string }) {
 	}
 
 	return (
-		<main className="flex flex-col items-center justify-center min-h-screen p-8 space-y-8 max-w-xl min-w-sm md:min-w-md lg:min-w-lg mx-auto">
+		<main className="flex flex-col items-center justify-center min-h-screen p-4 md:p-8 space-y-8 max-w-xl w-full md:min-w-md lg:min-w-lg mx-auto pb-(--footer-h)">
 			<Hero />
 			{/* Status and error messages */}
 			{error && (
@@ -90,10 +90,8 @@ export default function Receiver({ roomId }: { roomId: string }) {
 
 			<FileTable />
 
-			{hasStarted && status === ReceiverStatus.COMPLETED && (
-				<StatsTable />
-			)}
-			
+			{hasStarted && status === ReceiverStatus.COMPLETED && <StatsTable />}
+
 			{hasStarted && (
 				<div className="w-full space-y-2">
 					<div className="flex justify-between text-sm">
@@ -109,8 +107,7 @@ export default function Receiver({ roomId }: { roomId: string }) {
 					<Progress value={overallProgress} className="h-5 rounded-sm" />
 					<div className="flex justify-between text-xs text-muted-foreground">
 						<span>
-							{formatBytes(bytesDownloaded)} /{" "}
-							{formatBytes(totalBytes)}
+							{formatBytes(bytesDownloaded)} / {formatBytes(totalBytes)}
 						</span>
 						<span>
 							{currentFileIndex} / {filesMetadata.length} files

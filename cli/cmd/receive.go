@@ -60,6 +60,7 @@ func receiveFiles(roomID string) error {
 		return err
 	}
 
+	fmt.Println()
 	stopSpinner := ui.RunConnectionSpinner("Connecting to server...")
 	ctx, err := NewConnectionContext(cfg)
 	if err != nil {
@@ -131,6 +132,7 @@ func finalizeTransfer(zipMode bool, outputDir, tempDir string) error {
 		zipName = filepath.Join(outputDir, zipName)
 	}
 
+	fmt.Println()
 	s := ui.NewWaitingSpinner("Zipping files...")
 	s.Start()
 	if err := utils.ZipDirectory(tempDir, zipName); err != nil {
@@ -151,7 +153,6 @@ func joinRoom(ctx *ConnectionContext, roomID string) (*signaling.PeerInfo, error
 
 	select {
 	case peerInfo := <-ctx.Handler.JoinSuccess:
-		ui.PrintSuccessf("Connected to sender (type: %s)", peerInfo.ClientType)
 		return peerInfo, nil
 	case errMsg := <-ctx.Handler.Error:
 		return nil, transfer.WrapError("join room", transfer.ErrSignalingError, errMsg)

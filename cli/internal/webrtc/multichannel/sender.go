@@ -223,30 +223,62 @@ func (s *SenderSession) Transfer() error {
 		return err
 	}
 
+	fmt.Printf("\n%s Sending files...\n\n", ui.IconSend)
+
 	s.progress.Start()
 	filesCount := len(s.peer.fileChannels)
+	errChan := make(chan error, 1)
 
-	wg := &sync.WaitGroup{}
-	wg.Add(filesCount)
-	for _, fc := range s.peer.fileChannels {
-		go s.sendFile(fc, wg)
-	}
-
-	progressDone := make(chan struct{})
 	go func() {
+		defer s.progress.Program.Quit()
+
+		wg := &sync.WaitGroup{}
+		wg.Add(filesCount)
+
+		// We need to capture the first error that occurs in file senders
+		// using atomic value or a channel?
+		// Since sendFile returns error, we can use an error channel and a once to close it?
+		// Or strictly cancel context?
+		// For simplicity, we just log/track if any failed.
+
+		var firstErr error
+		var errOnce sync.Once
+
+		for _, fc := range s.peer.fileChannels {
+			go func(fc *SenderFileChannel) {
+				if err := s.sendFile(fc, wg); err != nil {
+					errOnce.Do(func() {
+						firstErr = err
+					})
+				}
+			}(fc)
+		}
+
 		wg.Wait()
-		close(progressDone)
+
+		if firstErr != nil {
+			errChan <- firstErr
+			return
+		}
+
+		select {
+		case <-s.peer.downloadingDone:
+		case <-s.handler.PeerLeft:
+			errChan <- transfer.ErrPeerDisconnected
+			return
+		case <-time.After(10 * time.Second):
+			// Log warning, but don't fail session
+		}
+
+		errChan <- nil
 	}()
 
-	transfer.RunProgressLoop(progressDone, filesCount, s.progress.View, transfer.ClearProgressLines)
-	fmt.Println()
+	if err := s.progress.Run(); err != nil {
+		return err
+	}
 
-	select {
-	case <-s.peer.downloadingDone:
-	case <-s.handler.PeerLeft:
-		return transfer.ErrPeerDisconnected
-	case <-time.After(10 * time.Second):
-		fmt.Println(ui.WarningStyle.Render("⚠️  Receiver confirmation timeout (files were sent successfully)"))
+	if err := <-errChan; err != nil {
+		return err
 	}
 
 	var totalSize int64

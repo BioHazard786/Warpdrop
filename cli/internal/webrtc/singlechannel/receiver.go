@@ -172,27 +172,34 @@ func (r *ReceiverSession) Transfer() error {
 	fmt.Printf("\n%s Receiving files...\n\n", ui.IconReceive)
 
 	filesCount := len(r.peer.filesMetadata)
+	errChan := make(chan error, 1)
 
-	progressDone := make(chan struct{})
-	defer close(progressDone)
+	go func() {
+		defer r.progress.Program.Quit()
 
-	go transfer.RunProgressLoop(progressDone, filesCount, r.progress.View, transfer.ClearProgressLines)
+		for i, meta := range r.peer.filesMetadata {
+			if err := transfer.SendReadyToReceive(r.peer.dataChannel, meta.Name, 0); err != nil {
+				errChan <- err
+				return
+			}
 
-	for i, meta := range r.peer.filesMetadata {
-		if err := transfer.SendReadyToReceive(r.peer.dataChannel, meta.Name, 0); err != nil {
-			return err
+			if err := r.receiveFile(meta, i); err != nil {
+				errChan <- transfer.NewFileError("receive", meta.Name, err)
+				return
+			}
 		}
 
-		if err := r.receiveFile(meta, i); err != nil {
-			return transfer.NewFileError("receive", meta.Name, err)
-		}
+		transfer.SendSimpleMessage(r.peer.dataChannel, transfer.MessageTypeDownloadingDone)
+		errChan <- nil
+	}()
+
+	if err := r.progress.Run(); err != nil {
+		return err
 	}
 
-	transfer.ClearProgressLines(filesCount)
-	fmt.Print(r.progress.View())
-	fmt.Println()
-
-	transfer.SendSimpleMessage(r.peer.dataChannel, transfer.MessageTypeDownloadingDone)
+	if err := <-errChan; err != nil {
+		return err
+	}
 
 	transfer.RenderSummary(filesCount, r.progress.TotalSize(), r.progress.Duration())
 	return nil

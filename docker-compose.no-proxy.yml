@@ -1,0 +1,18 @@
+services:
+  # Disable the bundled Traefik since you have your own fancy proxy
+  traefik:
+    profiles: ["disabled"]
+
+  # Expose ports directly so your proxy can find them
+  # (It's not magic, it's just networking)
+  frontend:
+    ports:
+      - "3000:3000"
+  
+  backend:
+    ports:
+      - "8080:8080"
+      
+  installer:
+    ports:
+      - "8000:8000"

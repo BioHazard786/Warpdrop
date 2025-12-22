@@ -197,47 +197,65 @@ func (s *SenderSession) Transfer() error {
 		return transfer.ErrSignalingError
 	}
 
+	fmt.Printf("\n%s Sending files...\n\n", ui.IconSend)
+
 	s.progress.Start()
 
-	progressDone := make(chan struct{})
-	defer close(progressDone)
+	errChan := make(chan error, 1)
 
-	go transfer.RunProgressLoop(progressDone, filesCount, s.progress.View, transfer.ClearProgressLines)
+	go func() {
+		defer s.progress.Program.Quit()
 
-	for i := range filesCount {
-		if i > 0 {
-			select {
-			case readyPayload = <-s.peer.receiverReady:
-			case <-s.peer.declineReceived:
-				return transfer.ErrTransferDeclined
-			case <-s.handler.PeerLeft:
-				return transfer.ErrPeerDisconnected
-			case <-s.handler.Error:
-				return transfer.ErrSignalingError
+		for i := range filesCount {
+			if i > 0 {
+				select {
+				case readyPayload = <-s.peer.receiverReady:
+				case <-s.peer.declineReceived:
+					errChan <- transfer.ErrTransferDeclined
+					return
+				case <-s.handler.PeerLeft:
+					errChan <- transfer.ErrPeerDisconnected
+					return
+				case <-s.handler.Error:
+					errChan <- transfer.ErrSignalingError
+					return
+				}
+			}
+
+			fileInfo, ok := fileByName[readyPayload.FileName]
+			if !ok {
+				errChan <- transfer.WrapError("transfer", transfer.ErrInvalidFile, readyPayload.FileName)
+				return
+			}
+
+			fileIndex := fileIndexByName[readyPayload.FileName]
+			if err := s.sendFile(fileInfo, readyPayload.Offset, fileIndex); err != nil {
+				errChan <- err
+				return
 			}
 		}
 
-		fileInfo, ok := fileByName[readyPayload.FileName]
-		if !ok {
-			return transfer.WrapError("transfer", transfer.ErrInvalidFile, readyPayload.FileName)
+		select {
+		case <-s.peer.downloadingDone:
+		case <-s.handler.PeerLeft:
+			errChan <- transfer.ErrPeerDisconnected
+			return
+		case <-time.After(10 * time.Second):
+			// We don't fail the transfer here, just log warning after UI cleans up
 		}
 
-		fileIndex := fileIndexByName[readyPayload.FileName]
-		if err := s.sendFile(fileInfo, readyPayload.Offset, fileIndex); err != nil {
-			return err
-		}
+		errChan <- nil
+	}()
+
+	// Block until UI is done
+	if err := s.progress.Run(); err != nil {
+		return err
 	}
 
-	transfer.ClearProgressLines(filesCount)
-	fmt.Print(s.progress.View())
-	fmt.Println()
-
-	select {
-	case <-s.peer.downloadingDone:
-	case <-s.handler.PeerLeft:
-		return transfer.ErrPeerDisconnected
-	case <-time.After(10 * time.Second):
-		fmt.Println(ui.WarningStyle.Render("⚠️  Receiver confirmation timeout (files were sent successfully)"))
+	// Check if there was an error during transfer
+	transferErr := <-errChan
+	if transferErr != nil {
+		return transferErr
 	}
 
 	transfer.RenderSummary(filesCount, totalSize, s.progress.Duration())

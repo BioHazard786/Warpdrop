@@ -1,16 +1,16 @@
 # Sample Nginx reverse proxy config for WarpDrop
-# Assumes containers or services reachable at 127.0.0.1:3000 (frontend) and 127.0.0.1:8080 (backend)
+# Assumes containers or services reachable at 127.0.0.1:3000 (frontend), 127.0.0.1:8080 (backend), and 127.0.0.1:8000 (installer)
 
 map $http_upgrade $connection_upgrade {
   default upgrade;
   ''      close;
 }
 
+# --- Main App ---
+
 server {
   listen 80;
   server_name YOUR_DOMAIN;
-
-  # Redirect HTTP to HTTPS if you terminate TLS on Nginx
   return 301 https://$host$request_uri;
 }
 
@@ -37,6 +37,31 @@ server {
     proxy_http_version 1.1;
     proxy_set_header Upgrade $http_upgrade;
     proxy_set_header Connection $connection_upgrade;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+  }
+}
+
+# --- Installer ---
+
+server {
+  listen 80;
+  server_name install.YOUR_DOMAIN;
+  return 301 https://$host$request_uri;
+}
+
+server {
+  listen 443 ssl http2;
+  server_name install.YOUR_DOMAIN;
+
+  # ssl_certificate /etc/letsencrypt/live/YOUR_DOMAIN/fullchain.pem;
+  # ssl_certificate_key /etc/letsencrypt/live/YOUR_DOMAIN/privkey.pem;
+
+  location / {
+    proxy_pass http://127.0.0.1:8000;
+    proxy_http_version 1.1;
     proxy_set_header Host $host;
     proxy_set_header X-Real-IP $remote_addr;
     proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;

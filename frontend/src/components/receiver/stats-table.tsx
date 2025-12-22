@@ -23,7 +23,7 @@ const StatsTable = () => {
 					<TableRow className="bg-muted/50">
 						<TableHead className="h-9 py-2">Total Size</TableHead>
 						<TableHead className="h-9 py-2 text-center">Duration</TableHead>
-						<TableHead className="h-9 py-2 text-right">AVG Speed</TableHead>
+						<TableHead className="h-9 py-2 text-right">Avg Speed</TableHead>
 					</TableRow>
 				</TableHeader>
 				<TableBody className="text-[13px]">

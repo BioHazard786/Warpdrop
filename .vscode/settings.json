@@ -38,5 +38,8 @@
 	"biome.lsp.bin": "frontend/node_modules/.bin/biome.exe",
 	"[go]": {
 		"editor.defaultFormatter": "golang.go"
+	},
+	"[snippets]": {
+		"editor.defaultFormatter": "vscode.json-language-features"
 	}
 }

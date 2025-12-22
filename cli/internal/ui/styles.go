@@ -90,7 +90,7 @@ var (
 
 	tableCellStyle = lipgloss.NewStyle().Padding(0, 1)
 
-	TableRowStyle = tableCellStyle.Foreground(lipgloss.Color("255"))
+	TableRowStyle = tableCellStyle.Foreground(Foreground)
 
 	TableRowAltStyle = tableCellStyle.Foreground(lipgloss.Color("245"))
 )

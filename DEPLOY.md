@@ -39,8 +39,8 @@ nano .env
 # CHANGE "DOMAIN" to your actual domain.
 # CHANGE "ACME_EMAIL" to your email (for Let's Encrypt).
 ```
-
-### 2. Launch It 🚀
+---
+## 2. Launch It 🚀
 
 ```bash
 docker compose up -d --build
@@ -71,17 +71,25 @@ docker compose up -d ctx
 
 ---
 
-## 4. The "I Hate Traefik" Option (Nginx)
+## 4. The "I Have My Own Proxy" Mode
 
-If you strictly prefer Nginx, we have a sample config in `deploy/nginx.conf.sample`.
-You will need to:
-1.  Remove `traefik` from `docker-compose.yml`.
-2.  Run your own Nginx container or host-level Nginx.
-3.  Proxy `/` to port 3000.
-4.  Proxy `/ws` to port 8080 (don't forget WebSocket headers).
-5.  Proxy `install.yourdomain.com` to port 8000.
+Identify as a control freak? Already have Nginx, Caddy, or Apache setup and refuse to let my Traefik instance touch your precious ports? Fine.
 
-Good luck. You're on your own.
+We made a special compose file for you that tells Traefik to take a hike and exposes the raw ports directly to your host.
+
+```bash
+# Combine the base config with the "no-proxy" override
+docker compose -f docker-compose.yml -f docker-compose.no-proxy.yml up -d
+```
+
+Now you have:
+- **Frontend**: `localhost:3000`
+- **Backend**: `localhost:8080`
+- **Installer**: `localhost:8000`
+
+Point your existing proxy to these ports. Don't forget to set the `Host` header and upgrade WebSocket connections for the backend (port 8080), or nothing will work and you'll cry.
+
+(Check `deploy/nginx.conf.sample` if you want a cheat sheet for Nginx configuration).
 
 ---
 
