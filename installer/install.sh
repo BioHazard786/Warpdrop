@@ -83,10 +83,10 @@ print_help() {
   local help_header
   local help_message
 
-  help_header="WarpDrop CLI Installer Script"
+  help_header="Warpdrop CLI Installer Script"
   help_message="Usage:
   -p INSTALL_PREFIX
-      Prefix to install WarpDrop CLI into. Directory must already exist.
+      Prefix to install Warpdrop CLI into. Directory must already exist.
       Default = /usr/local/bin ('\${PREFIX}/bin' on Termux for Android)
   
   -h
@@ -592,11 +592,11 @@ main() {
 
   warpdrop_bin_name="warpdrop"
   warpdrop_dl_ext="tar.gz"
-  warpdrop_base_url="https://github.com/BioHazard786/WarpDrop/releases/download"
+  warpdrop_base_url="https://github.com/BioHazard786/Warpdrop/releases/download"
   prefix="${1}"
 
   print_banner
-  print_message "== Fetching latest WarpDrop version..." "info"
+  print_message "== Fetching latest Warpdrop version..." "info"
   warpdrop_version="$(get_latest_version)"
   if [[ $? -eq 0 ]]; then
     print_message "== Latest version detected: ${warpdrop_version}" "ok"
@@ -679,9 +679,9 @@ main() {
   download_file "${warpdrop_url}" "${tmpdir}" "${warpdrop_file}"
   download_file_rcode="${?}"
   if [[ "${download_file_rcode}" == "0" ]]; then
-    print_message "== Downloaded WarpDrop CLI archive into ${tmpdir}" "info"
+    print_message "== Downloaded Warpdrop CLI archive into ${tmpdir}" "info"
   elif [[ "${download_file_rcode}" == "1" ]]; then
-    print_message "== Failed to download WarpDrop CLI archive" "error"
+    print_message "== Failed to download Warpdrop CLI archive" "error"
     exit 1
   elif [[ "${download_file_rcode}" == "20" ]]; then
     print_message "== Failed to locate curl or wget" "error"
@@ -694,9 +694,9 @@ main() {
   download_file "${warpdrop_checksum_url}" "${tmpdir}" "${warpdrop_checksum_file}"
   download_checksum_file_rcode="${?}"
   if [[ "${download_checksum_file_rcode}" == "0" ]]; then
-    print_message "== Downloaded WarpDrop CLI checksums file into ${tmpdir}" "info"
+    print_message "== Downloaded Warpdrop CLI checksums file into ${tmpdir}" "info"
   elif [[ "${download_checksum_file_rcode}" == "1" ]]; then
-    print_message "== Failed to download WarpDrop CLI checksums" "error"
+    print_message "== Failed to download Warpdrop CLI checksums" "error"
     exit 1
   elif [[ "${download_checksum_file_rcode}" == "20" ]]; then
     print_message "== Failed to locate curl or wget" "error"

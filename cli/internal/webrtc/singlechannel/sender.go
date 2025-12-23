@@ -156,7 +156,10 @@ func (s *SenderSession) Start() error {
 func (s *SenderSession) listenForSignals() {
 	for {
 		select {
-		case sig := <-s.handler.Signal:
+		case sig, ok := <-s.handler.Signal:
+			if !ok {
+				return
+			}
 			if sig == nil {
 				continue
 			}
@@ -287,17 +290,14 @@ func (s *SenderSession) sendFile(fileInfo *files.FileInfo, startOffset uint64, f
 func (s *SenderSession) Close() error {
 	if s.peer != nil {
 		s.peer.close()
-		s.peer = nil
 	}
 	time.Sleep(100 * time.Millisecond)
 
 	if s.signalingClient != nil {
 		s.signalingClient.Close()
-		s.signalingClient = nil
 	}
 	if s.handler != nil {
 		s.handler.Close()
-		s.handler = nil
 	}
 	return nil
 }

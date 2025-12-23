@@ -33,14 +33,14 @@ function Footer() {
 	return (
 		<footer
 			ref={footerRef}
-			className="fixed bottom-0 z-100 flex flex-col md:flex-row w-full items-center justify-between bg-accent/50 p-4 py-2.5 border-t gap-4"
+			className="fixed bottom-0 z-100 flex flex-col md:flex-row w-full items-center justify-between bg-[#f9f9f9] dark:bg-[#101012] p-4 py-2.5 border-t gap-4"
 		>
 			<div className="order-2 md:order-1 flex justify-between items-center w-full md:contents">
 				<div className="flex flex-col items-stretch justify-start gap-2 flex-initial text-muted-foreground order-2 md:order-1">
 					<p className="text-xs">© {new Date().getFullYear()} Warpdrop, Inc.</p>
 					<div className="flex flex-row items-center justify-start gap-3 flex-initial h-5">
 						<Link
-							href="https://github.com/BioHazard786"
+							href="https://github.com/BioHazard786/Warpdrop"
 							target="_blank"
 							rel="noreferrer"
 						>

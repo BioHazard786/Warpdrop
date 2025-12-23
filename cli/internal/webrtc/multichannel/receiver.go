@@ -137,7 +137,10 @@ func (r *ReceiverSession) Start() error {
 func (r *ReceiverSession) listenForSignals() {
 	for {
 		select {
-		case sig := <-r.handler.Signal:
+		case sig, ok := <-r.handler.Signal:
+			if !ok {
+				return
+			}
 			if sig == nil {
 				continue
 			}
@@ -295,17 +298,14 @@ func (r *ReceiverSession) receiveFile(fc *ReceiverFileChannel, wg *sync.WaitGrou
 func (r *ReceiverSession) Close() error {
 	if r.peer != nil {
 		r.peer.close()
-		r.peer = nil
 	}
 	time.Sleep(100 * time.Millisecond)
 
 	if r.signalingClient != nil {
 		r.signalingClient.Close()
-		r.signalingClient = nil
 	}
 	if r.handler != nil {
 		r.handler.Close()
-		r.handler = nil
 	}
 	return nil
 }

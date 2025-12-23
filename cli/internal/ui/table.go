@@ -3,6 +3,7 @@ package ui
 import (
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/BioHazard786/Warpdrop/cli/internal/utils"
 	"github.com/charmbracelet/lipgloss"
@@ -24,6 +25,7 @@ func terminalWidth() int {
 
 func tableStyle() *table.Table {
 	return table.New().
+		Wrap(true).
 		Border(lipgloss.NormalBorder()).
 		BorderStyle(lipgloss.NewStyle().Foreground(Primary)).
 		StyleFunc(func(row, _ int) lipgloss.Style {
@@ -58,8 +60,22 @@ func tableWidth(headers []string, rows [][]string) int {
 		width += w
 	}
 
-	// column separators
-	return width + len(headers) - 1
+	// column separators and padding  and outer borders
+	return width + (len(headers) - 1) + (len(headers) * 2) + 2
+}
+
+func boxContentWidth(box lipgloss.Style, content string) int {
+	lines := strings.Split(content, "\n")
+
+	max := 0
+	for _, line := range lines {
+		w := lipgloss.Width(line)
+		if w > max {
+			max = w
+		}
+	}
+
+	return max + box.GetHorizontalFrameSize()
 }
 
 /* -------------------------------------------------------------------------- */
@@ -203,7 +219,7 @@ func (r *RoomInfo) View() string {
 
 	box := SuccessBoxStyle
 
-	if w := lipgloss.Width(content) + box.GetHorizontalFrameSize(); w > terminalWidth() {
+	if w := boxContentWidth(box, content); w > terminalWidth() {
 		box = box.Width(terminalWidth() - 2)
 	}
 

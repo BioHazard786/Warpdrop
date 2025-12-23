@@ -6,8 +6,6 @@ import (
 	"fmt"
 	"net"
 	"time"
-
-	"github.com/BioHazard786/Warpdrop/cli/internal/ui"
 )
 
 // PublicDNS are servers to be queried if a local lookup fails
@@ -44,7 +42,7 @@ func Lookup(address string) (string, error) {
 	}
 
 	// 2. Fallback to Internal/Public DNS
-	ui.PrintWarning(fmt.Sprintf("System DNS lookup failed for %s, falling back to public DNS...", address))
+	// ui.PrintWarning(fmt.Sprintf("System DNS lookup failed for %s, falling back to public DNS...", address))
 	return remoteLookupWithRace(address)
 }
 

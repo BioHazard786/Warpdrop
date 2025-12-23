@@ -2,11 +2,9 @@ package signaling
 
 import (
 	"fmt"
-	"net"
 	"net/url"
 	"time"
 
-	"github.com/BioHazard786/Warpdrop/cli/internal/dns"
 	"github.com/gorilla/websocket"
 )
 
@@ -44,25 +42,7 @@ func (c *Client) Connect() error {
 		return fmt.Errorf("invalid server URL: %w", err)
 	}
 
-	// Create a custom dialer that uses our robust DNS lookup
-	dialer := websocket.DefaultDialer
-	dialer.NetDial = func(network, addr string) (net.Conn, error) {
-		host, port, err := net.SplitHostPort(addr)
-		if err != nil {
-			return nil, err
-		}
-
-		// Use our custom DNS lookup with fallback
-		resolvedIP, err := dns.Lookup(host)
-		if err != nil {
-			return nil, fmt.Errorf("dns lookup failed: %w", err)
-		}
-
-		// Dial the resolved IP
-		return net.Dial(network, net.JoinHostPort(resolvedIP, port))
-	}
-
-	conn, _, err := dialer.Dial(u.String(), nil)
+	conn, _, err := websocket.DefaultDialer.Dial(u.String(), nil)
 	if err != nil {
 		return fmt.Errorf("failed to connect: %w", err)
 	}
