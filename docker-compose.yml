@@ -4,8 +4,6 @@ services:
     ports:
       - "127.0.0.1:8000:8000"
     restart: unless-stopped
-    networks:
-      - web
 
   backend:
     image: ghcr.io/biohazard786/warpdrop-backend:latest
@@ -14,8 +12,6 @@ services:
     ports:
       - "127.0.0.1:8080:8080"
     restart: unless-stopped
-    networks:
-      - web
 
   frontend:
     image: ghcr.io/biohazard786/warpdrop-frontend:latest
@@ -34,8 +30,6 @@ services:
       timeout: 3s
       retries: 3
     restart: unless-stopped
-    networks:
-      - web
 
   # coturn:
   #   image: coturn/coturn:latest
@@ -56,7 +50,3 @@ services:
   #   # NOTE: TURN over TLS (port 5349) needs certificates at /etc/coturn/certs.
   #   # Easiest path: point your host Caddy/Nginx at turn.${DOMAIN} so it provisions
   #   # a cert, then mount the cert files into this container via an extra volume.
-
-networks:
-  web:
-    external: false
